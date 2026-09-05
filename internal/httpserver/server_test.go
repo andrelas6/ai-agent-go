@@ -1,0 +1,135 @@
+package httpserver
+
+import (
+	"bufio"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/andrelas6/ai-agent-go/internal/session"
+)
+
+func newTestServer(t *testing.T) (*httptest.Server, *session.Registry) {
+	t.Helper()
+	reg := session.NewRegistry()
+	ts := httptest.NewServer(New(reg).Mux())
+	t.Cleanup(ts.Close)
+	return ts, reg
+}
+
+func TestPostMessage_UnknownSession(t *testing.T) {
+	ts, _ := newTestServer(t)
+	resp, err := http.Post(ts.URL+"/messages/session/does-not-exist", "application/json", strings.NewReader(`{"message":"hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("got %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestPostMessage_MalformedJSON(t *testing.T) {
+	ts, reg := newTestServer(t)
+	id, _ := reg.Create()
+	resp, err := http.Post(ts.URL+"/messages/session/"+id, "application/json", strings.NewReader(`{not json`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestPostMessage_KnownSession_Echoes(t *testing.T) {
+	ts, reg := newTestServer(t)
+	id, ch := reg.Create()
+
+	resp, err := http.Post(ts.URL+"/messages/session/"+id, "application/json", strings.NewReader(`{"message":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("got %d, want 202", resp.StatusCode)
+	}
+
+	select {
+	case got := <-ch:
+		if got != "hello!!!" {
+			t.Fatalf("got %q, want %q", got, "hello!!!")
+		}
+	default:
+		t.Fatal("expected message on session channel")
+	}
+}
+
+func readSSEData(t *testing.T, r *bufio.Reader) string {
+	t.Helper()
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			t.Fatalf("reading SSE stream: %v", err)
+		}
+		line = strings.TrimRight(line, "\n")
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			return after
+		}
+	}
+}
+
+func TestGetSSE_FirstEventIsSessionURL(t *testing.T) {
+	ts, reg := newTestServer(t)
+
+	req, _ := http.NewRequest("GET", ts.URL+"/sse", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	data := readSSEData(t, bufio.NewReader(resp.Body))
+	id, ok := strings.CutPrefix(data, "/messages/session/")
+	if !ok {
+		t.Fatalf("first event %q missing /messages/session/ prefix", data)
+	}
+	if _, ok := reg.Get(id); !ok {
+		t.Fatalf("registry does not know session %q", id)
+	}
+}
+
+func TestRoundTrip_PostThenSSEEchoes(t *testing.T) {
+	ts, _ := newTestServer(t)
+
+	req, _ := http.NewRequest("GET", ts.URL+"/sse", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	br := bufio.NewReader(resp.Body)
+	sessionURL := readSSEData(t, br)
+
+	post, err := http.Post(ts.URL+sessionURL, "application/json", strings.NewReader(`{"message":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	post.Body.Close()
+
+	done := make(chan string, 1)
+	go func() { done <- readSSEData(t, br) }()
+	select {
+	case got := <-done:
+		if got != "hello!!!" {
+			t.Fatalf("got %q, want %q", got, "hello!!!")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for SSE echo")
+	}
+}
