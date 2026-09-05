@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"bufio"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -62,5 +63,40 @@ func TestPostMessage_KnownSession_Echoes(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected message on session channel")
+	}
+}
+
+func readSSEData(t *testing.T, r *bufio.Reader) string {
+	t.Helper()
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			t.Fatalf("reading SSE stream: %v", err)
+		}
+		line = strings.TrimRight(line, "\n")
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			return after
+		}
+	}
+}
+
+func TestGetSSE_FirstEventIsSessionURL(t *testing.T) {
+	ts, reg := newTestServer(t)
+
+	req, _ := http.NewRequest("GET", ts.URL+"/sse", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	data := readSSEData(t, bufio.NewReader(resp.Body))
+	id, ok := strings.CutPrefix(data, "/messages/session/")
+	if !ok {
+		t.Fatalf("first event %q missing /messages/session/ prefix", data)
+	}
+	if _, ok := reg.Get(id); !ok {
+		t.Fatalf("registry does not know session %q", id)
 	}
 }
