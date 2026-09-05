@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andrelas6/ai-agent-go/internal/session"
 )
@@ -98,5 +99,37 @@ func TestGetSSE_FirstEventIsSessionURL(t *testing.T) {
 	}
 	if _, ok := reg.Get(id); !ok {
 		t.Fatalf("registry does not know session %q", id)
+	}
+}
+
+func TestRoundTrip_PostThenSSEEchoes(t *testing.T) {
+	ts, _ := newTestServer(t)
+
+	req, _ := http.NewRequest("GET", ts.URL+"/sse", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	br := bufio.NewReader(resp.Body)
+	sessionURL := readSSEData(t, br)
+
+	post, err := http.Post(ts.URL+sessionURL, "application/json", strings.NewReader(`{"message":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	post.Body.Close()
+
+	done := make(chan string, 1)
+	go func() { done <- readSSEData(t, br) }()
+	select {
+	case got := <-done:
+		if got != "hello!!!" {
+			t.Fatalf("got %q, want %q", got, "hello!!!")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for SSE echo")
 	}
 }
