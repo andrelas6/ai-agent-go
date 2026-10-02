@@ -1,0 +1,736 @@
+<title>Three Harnesses</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #F4F6F9; --bg-raised: #FFFFFF; --bg-sunken: #E9EDF2;
+    --ink: #18212B; --ink-2: #3A4856; --muted: #5B6B7C;
+    --line: #D3DAE3; --line-strong: #AEB9C6;
+    --accent: #0E9BB8; --accent-ink: #0A7A91; --accent-soft: #D9F0F5;
+    --py: #C7891A; --py-soft: #FBF0D9; --py-ink: #8A5D0A;
+    --ch: #D24A8C; --ch-soft: #FBE1EE; --ch-ink: #A02E67;
+    --oc: #6F5FD6; --oc-soft: #E7E3FA; --oc-ink: #4E3FB0;
+    --warn: #B7452B;
+    --code-bg: #1E2833; --code-ink: #E6EDF3; --code-muted: #8B9BAB;
+    --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0F151C; --bg-raised: #161E27; --bg-sunken: #0B1015;
+      --ink: #E7EDF3; --ink-2: #C3CED9; --muted: #8C9BAB;
+      --line: #263141; --line-strong: #3A485A;
+      --accent: #2FBBD8; --accent-ink: #5FD0E8; --accent-soft: #113742;
+      --py: #E0A63A; --py-soft: #33270F; --py-ink: #F0C36A;
+      --ch: #E667A5; --ch-soft: #3A1728; --ch-ink: #F58DC0;
+      --oc: #9384EE; --oc-soft: #231E3F; --oc-ink: #B4A8F5;
+      --warn: #E8785C;
+      --code-bg: #0B1015; --code-ink: #DCE5EE; --code-muted: #7D8B9A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F151C; --bg-raised: #161E27; --bg-sunken: #0B1015;
+    --ink: #E7EDF3; --ink-2: #C3CED9; --muted: #8C9BAB;
+    --line: #263141; --line-strong: #3A485A;
+    --accent: #2FBBD8; --accent-ink: #5FD0E8; --accent-soft: #113742;
+    --py: #E0A63A; --py-soft: #33270F; --py-ink: #F0C36A;
+    --ch: #E667A5; --ch-soft: #3A1728; --ch-ink: #F58DC0;
+    --oc: #9384EE; --oc-soft: #231E3F; --oc-ink: #B4A8F5;
+    --warn: #E8785C;
+    --code-bg: #0B1015; --code-ink: #DCE5EE; --code-muted: #7D8B9A;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.55; }
+  a { color: var(--accent-ink); }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; margin: 0; }
+  h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); font-weight: 750; letter-spacing: -.02em; }
+  h2 { font-size: 1.7rem; font-weight: 700; letter-spacing: -.015em; }
+  h3 { font-size: .78rem; font-weight: 600; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 0 0 .6rem; }
+  p { margin: .5rem 0; }
+  code { font-family: var(--mono); font-size: .84em; background: var(--bg-sunken); padding: .08em .3em; border-radius: 3px; color: var(--ink-2); }
+  pre { background: var(--code-bg); color: var(--code-ink); font-family: var(--mono); font-size: .78rem; line-height: 1.5; padding: .9rem 1rem; border-radius: 6px; overflow-x: auto; margin: 0; border-left: 3px solid var(--sec, var(--accent)); }
+  pre .c { color: var(--code-muted); font-style: italic; } pre .k { color: #7EC8E3; } pre .s { color: #C9E4A5; }
+  .eyebrow { font-family: var(--display); font-size: .76rem; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+
+  .shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 3rem; max-width: 1260px; margin: 0 auto; padding: 0 2rem 6rem; }
+  .rail { position: sticky; top: 0; align-self: start; padding-top: 3.2rem; height: 100vh; overflow-y: auto; }
+  .rail nav { display: flex; flex-direction: column; gap: .15rem; font-family: var(--display); font-size: .84rem; }
+  .rail a { color: var(--muted); text-decoration: none; padding: .3rem .6rem; border-left: 2px solid transparent; }
+  .rail a:hover { color: var(--ink); background: var(--bg-sunken); }
+  .rail a.py { border-left-color: var(--py); } .rail a.ch { border-left-color: var(--ch); } .rail a.oc { border-left-color: var(--oc); } .rail a.go { border-left-color: var(--accent); }
+  .rail a[class] { color: var(--ink-2); font-weight: 600; }
+  main { min-width: 0; }
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; gap: 0; padding: 0 1rem 4rem; }
+    .rail { position: static; height: auto; padding-top: 1.5rem; }
+    .rail nav { flex-direction: row; flex-wrap: wrap; gap: .3rem; }
+    .rail a { border-left: 0; border-bottom: 2px solid transparent; }
+  }
+
+  header.top { padding: 3.2rem 0 1.8rem; border-bottom: 1px solid var(--line); }
+  header.top .lede { font-size: 1.1rem; color: var(--ink-2); max-width: 62ch; margin-top: .8rem; }
+  .meta { display: flex; flex-wrap: wrap; gap: .4rem 1.6rem; margin-top: 1.2rem; font-family: var(--display); font-size: .8rem; color: var(--muted); }
+  .meta b { color: var(--ink-2); font-weight: 600; }
+
+  section { margin-top: 4rem; --sec: var(--accent); --sec-soft: var(--accent-soft); --sec-ink: var(--accent-ink); }
+  section.py { --sec: var(--py); --sec-soft: var(--py-soft); --sec-ink: var(--py-ink); }
+  section.ch { --sec: var(--ch); --sec-soft: var(--ch-soft); --sec-ink: var(--ch-ink); }
+  section.oc { --sec: var(--oc); --sec-soft: var(--oc-soft); --sec-ink: var(--oc-ink); }
+  .sec-head { display: grid; grid-template-columns: auto 1fr; gap: 1.1rem; align-items: start; padding-bottom: 1rem; border-bottom: 2px solid var(--sec); margin-bottom: 1.4rem; }
+  .sec-head .idx { font-family: var(--display); font-weight: 800; font-size: 2.4rem; line-height: 1; color: var(--sec); font-variation-settings: "wdth" 75; }
+  .sec-head .sub { color: var(--muted); margin-top: .3rem; font-size: .98rem; max-width: 70ch; }
+  .sec-head .repo { font-family: var(--mono); font-size: .76rem; margin-top: .4rem; color: var(--muted); }
+
+  /* ---- figures ---- */
+  figure.fig { margin: 0 0 1.6rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg-raised); padding: 1rem 1rem .6rem; overflow-x: auto; }
+  figure.fig svg { display: block; width: 100%; height: auto; min-width: 640px; color: var(--ink-2); }
+  figure.fig figcaption { font-family: var(--display); font-size: .82rem; color: var(--muted); margin-top: .6rem; max-width: 80ch; }
+  figure.fig figcaption b { color: var(--ink-2); font-weight: 600; }
+  .fig text { font-family: var(--display); font-size: 12px; fill: currentColor; }
+  .fig text.t { font-weight: 650; fill: var(--ink); }
+  .fig text.s { font-size: 10.5px; fill: var(--muted); }
+  .fig text.m { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .fig text.lbl { font-size: 10.5px; fill: var(--muted); font-style: italic; }
+  .fig text.lay { font-size: 10px; font-weight: 700; letter-spacing: .12em; fill: var(--muted); }
+  .fig text.py { fill: var(--py-ink); } .fig text.ch { fill: var(--ch-ink); } .fig text.oc { fill: var(--oc-ink); }
+  .fig text.warn { fill: var(--warn); font-weight: 600; }
+  .fig .bx { fill: var(--bg-raised); stroke: var(--line-strong); stroke-width: 1; rx: 3; }
+  .fig .bx.hi { fill: var(--sec-soft); stroke: var(--sec); stroke-width: 1.4; }
+  .fig .bx.ext { fill: none; stroke: var(--muted); stroke-dasharray: 4 3; }
+  .fig .bx.soft { fill: var(--bg-sunken); stroke: var(--line); }
+  .fig .rg { fill: none; stroke: var(--sec); stroke-width: 1; stroke-dasharray: 6 4; opacity: .7; rx: 4; }
+  .fig .band { fill: var(--sec-soft); stroke: var(--sec); stroke-width: 1; rx: 2; }
+  .fig .band.warn { fill: none; stroke: var(--warn); stroke-dasharray: 4 3; }
+  .fig .ln { stroke: currentColor; stroke-width: 1.2; fill: none; }
+  .fig .ln.dim { stroke: var(--muted); stroke-dasharray: 4 3; }
+  .fig .gap { stroke: var(--bg-raised); stroke-width: 6; fill: none; }
+  .fig .tick { stroke: var(--sec); stroke-width: 2; }
+
+  /* ---- component lists ---- */
+  .cols { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 1.6rem; align-items: start; }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+  dl.comp { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; font-size: .9rem; }
+  dl.comp dt { font-family: var(--mono); font-size: .76rem; font-weight: 600; color: var(--sec-ink); padding-top: .15rem; }
+  dl.comp dd { margin: 0; color: var(--ink-2); }
+
+  /* ---- stack comparison ---- */
+  .stack { display: grid; grid-template-columns: 150px repeat(3, minmax(0, 1fr)); gap: 4px; font-family: var(--display); }
+  .stack .h { font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; padding: .5rem .6rem; color: var(--muted); }
+  .stack .h.py { color: var(--py-ink); border-top: 3px solid var(--py); } .stack .h.ch { color: var(--ch-ink); border-top: 3px solid var(--ch); } .stack .h.oc { color: var(--oc-ink); border-top: 3px solid var(--oc); }
+  .stack .row { font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: .55rem .6rem .55rem 0; display: flex; align-items: center; }
+  .stack .cell { padding: .5rem .65rem; border-radius: 3px; font-size: .84rem; line-height: 1.3; border: 1px solid var(--line); background: var(--bg-raised); display: flex; align-items: center; }
+  .stack .cell b { font-family: var(--mono); font-size: .74rem; font-weight: 600; display: block; margin-bottom: .1rem; }
+  .stack .cell.py { border-left: 4px solid var(--py); background: var(--py-soft); } .stack .cell.py b { color: var(--py-ink); }
+  .stack .cell.ch { border-left: 4px solid var(--ch); background: var(--ch-soft); } .stack .cell.ch b { color: var(--ch-ink); }
+  .stack .cell.oc { border-left: 4px solid var(--oc); background: var(--oc-soft); } .stack .cell.oc b { color: var(--oc-ink); }
+  .stack .cell.none { border-style: dashed; background: transparent; color: var(--muted); font-style: italic; justify-content: center; }
+  .stack-wrap { overflow-x: auto; }
+  .stack-wrap .stack { min-width: 720px; }
+
+  footer { margin-top: 4rem; padding-top: 1.2rem; border-top: 1px solid var(--line); font-family: var(--display); font-size: .8rem; color: var(--muted); }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="shell">
+  <aside class="rail">
+    <nav aria-label="Sections">
+      <a href="#anatomy">Anatomy of a harness</a>
+      <a href="#ai-agent" class="py">1 · ai-agent</a>
+      <a href="#crush" class="ch">2 · crush</a>
+      <a href="#opencode" class="oc">3 · opencode</a>
+      <a href="#stack">Layer by layer</a>
+      <a href="#abstractions">Abstractions</a>
+      <a href="#go" class="go">Proposed Go package map</a>
+    </nav>
+  </aside>
+
+  <main>
+    <header class="top">
+      <span class="eyebrow">ai-agent-go · architecture views</span>
+      <h1>Three Harnesses</h1>
+      <p class="lede">Layered component views of ai-agent, crush and opencode, drawn to the same anatomy so the layers line up — then the abstractions each one puts on the edges, and a package map for the Go harness.</p>
+      <div class="meta">
+        <span>Sources <b>analysis/ai-agent</b> · <b>analysis/crush</b> · <b>analysis/opencode</b></span>
+        <span>Snapshot <b>2026-09-04</b></span>
+      </div>
+    </header>
+
+    <!-- ================= ANATOMY ================= -->
+    <section id="anatomy">
+      <div class="sec-head">
+        <div class="idx">0</div>
+        <div>
+          <h2>Anatomy of a harness</h2>
+          <p class="sub">The reference shape all three instantiate. Commands travel down through a transport; the agent loop sits in the runtime with tools on one side and the provider on the other; events travel back up through a bus. The three figures below keep these rows in the same order.</p>
+        </div>
+      </div>
+      <figure class="fig">
+        <svg viewBox="0 0 960 545" role="img" aria-label="Generic harness: frontends send commands down through a transport to an agent loop that calls tools and a provider adapter, persists through services to storage, and publishes events back up through a bus to the frontends.">
+          <defs><marker id="a0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <text class="lay" x="30" y="65">FRONTEND</text>
+          <text class="lay" x="30" y="152">TRANSPORT</text>
+          <text class="lay" x="30" y="212">EVENTS</text>
+          <text class="lay" x="30" y="350">RUNTIME</text>
+          <text class="lay" x="30" y="512">STORAGE</text>
+
+          <rect class="bx" x="190" y="30" width="150" height="60"/><text class="t" x="265" y="55" text-anchor="middle">TUI</text><text class="s" x="265" y="73" text-anchor="middle">interactive</text>
+          <rect class="bx" x="360" y="30" width="150" height="60"/><text class="t" x="435" y="55" text-anchor="middle">CLI batch</text><text class="s" x="435" y="73" text-anchor="middle">one prompt, exit</text>
+          <rect class="bx" x="530" y="30" width="150" height="60"/><text class="t" x="605" y="55" text-anchor="middle">Web / IDE / bot</text><text class="s" x="605" y="73" text-anchor="middle">remote clients</text>
+
+          <rect class="bx soft" x="190" y="125" width="580" height="45"/><text class="t" x="480" y="152" text-anchor="middle">Transport · in-process calls | HTTP + SSE | Unix socket</text>
+
+          <rect class="band" x="190" y="195" width="580" height="25"/><text class="t" x="480" y="212" text-anchor="middle">event bus · message deltas · tool state · permission asks · run complete</text>
+
+          <rect class="rg" x="180" y="240" width="570" height="210"/>
+          <rect class="bx" x="200" y="265" width="140" height="70"/><text class="t" x="270" y="292" text-anchor="middle">Tool registry</text><text class="s" x="270" y="310" text-anchor="middle">built-in · MCP</text>
+          <rect class="bx hi" x="380" y="265" width="200" height="70"/><text class="t" x="480" y="292" text-anchor="middle">Agent loop</text><text class="s" x="480" y="310" text-anchor="middle">prompt → stream → tools → repeat</text>
+          <rect class="bx" x="610" y="265" width="130" height="70"/><text class="t" x="675" y="292" text-anchor="middle">Provider adapter</text><text class="s" x="675" y="310" text-anchor="middle">one per vendor</text>
+          <rect class="bx ext" x="780" y="265" width="110" height="70"/><text class="t" x="835" y="292" text-anchor="middle">LLM API</text><text class="s" x="835" y="310" text-anchor="middle">external</text>
+
+          <rect class="bx" x="200" y="370" width="140" height="55"/><text class="t" x="270" y="393" text-anchor="middle">Permissions</text><text class="s" x="270" y="410" text-anchor="middle">blocks until answered</text>
+          <rect class="bx" x="360" y="370" width="110" height="55"/><text class="t" x="415" y="393" text-anchor="middle">Session</text><text class="s" x="415" y="410" text-anchor="middle">id · title · usage</text>
+          <rect class="bx" x="490" y="370" width="110" height="55"/><text class="t" x="545" y="393" text-anchor="middle">Messages</text><text class="s" x="545" y="410" text-anchor="middle">list of parts</text>
+          <rect class="bx" x="620" y="370" width="110" height="55"/><text class="t" x="675" y="393" text-anchor="middle">Config</text><text class="s" x="675" y="410" text-anchor="middle">read by all</text>
+
+          <rect class="bx soft" x="360" y="485" width="240" height="45"/><text class="t" x="480" y="512" text-anchor="middle">SQLite · in-memory</text>
+
+          <line class="ln" x1="265" y1="90" x2="265" y2="125" marker-end="url(#a0)"/><text class="lbl" x="275" y="112">prompt · cancel · grant</text>
+          <line class="ln" x1="435" y1="90" x2="435" y2="125" marker-end="url(#a0)"/>
+          <line class="ln" x1="570" y1="90" x2="570" y2="125" marker-end="url(#a0)"/>
+          <line class="ln" x1="650" y1="195" x2="650" y2="90" marker-end="url(#a0)"/><text class="lbl" x="658" y="112">events → UI</text>
+          <line class="ln" x1="440" y1="170" x2="440" y2="265" marker-end="url(#a0)"/><text class="lbl" x="432" y="250" text-anchor="end">run(session, prompt)</text>
+          <line class="ln" x1="520" y1="265" x2="520" y2="220" marker-end="url(#a0)"/><text class="lbl" x="528" y="242">publishes</text>
+          <line class="ln" x1="270" y1="265" x2="270" y2="220" marker-end="url(#a0)"/><text class="lbl" x="278" y="242">asks</text>
+          <line class="ln" x1="580" y1="300" x2="610" y2="300" marker-end="url(#a0)"/>
+          <line class="ln" x1="740" y1="300" x2="780" y2="300" marker-end="url(#a0)"/>
+          <text class="lbl" x="675" y="352" text-anchor="middle">history + tool schemas →   ← streamed deltas</text>
+          <line class="ln" x1="380" y1="300" x2="340" y2="300" marker-end="url(#a0)"/><text class="lbl" x="360" y="291" text-anchor="middle">calls</text>
+          <line class="ln" x1="270" y1="335" x2="270" y2="370" marker-end="url(#a0)"/><text class="lbl" x="278" y="357">asks first</text>
+          <line class="ln" x1="415" y1="335" x2="415" y2="370" marker-end="url(#a0)"/>
+          <line class="ln" x1="545" y1="335" x2="545" y2="370" marker-end="url(#a0)"/><text class="lbl" x="480" y="357" text-anchor="middle">load · persist</text>
+          <line class="ln" x1="415" y1="425" x2="415" y2="485" marker-end="url(#a0)"/>
+          <line class="ln" x1="545" y1="425" x2="545" y2="485" marker-end="url(#a0)"/>
+        </svg>
+        <figcaption><b>Commands go down, events come up.</b> The only component that touches all four edges — frontend, tools, provider, storage — is the agent loop; every other box talks to exactly one neighbour. That is the property to preserve.</figcaption>
+      </figure>
+    </section>
+
+    <!-- ================= 1. ai-agent ================= -->
+    <section id="ai-agent" class="py">
+      <div class="sec-head">
+        <div class="idx">1</div>
+        <div>
+          <h2>ai-agent — my own mini agent</h2>
+          <p class="sub">Only the runtime row exists. No transport, no events, no storage: the CLI <em>is</em> the loop, and the message list lives in a Python variable.</p>
+          <div class="repo">github.com/andrelas6/ai-agent · Python · ~400 LOC</div>
+        </div>
+      </div>
+      <figure class="fig">
+        <svg viewBox="0 0 760 400" role="img" aria-label="ai-agent: main.py runs a loop that calls the OpenAI SDK against OpenRouter, dispatches tool calls through function_map to four sandboxed filesystem tools, all confined by a path jail.">
+          <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <rect class="bx" x="30" y="40" width="140" height="60"/><text class="t" x="100" y="65" text-anchor="middle">main.py</text><text class="s" x="100" y="83" text-anchor="middle">argparse · OpenAI client</text>
+          <rect class="bx hi" x="220" y="40" width="190" height="60"/><text class="t" x="315" y="65" text-anchor="middle">call_model()</text><text class="s" x="315" y="83" text-anchor="middle">loop · ≤ 15 iterations · not streamed</text>
+          <rect class="bx" x="460" y="40" width="140" height="60"/><text class="t" x="530" y="65" text-anchor="middle">openai SDK</text><text class="s" x="530" y="83" text-anchor="middle">chat.completions.create</text>
+          <rect class="bx ext" x="640" y="40" width="100" height="60"/><text class="t" x="690" y="65" text-anchor="middle">OpenRouter</text><text class="s" x="690" y="83" text-anchor="middle">gemma-4-31b</text>
+
+          <rect class="bx" x="220" y="160" width="190" height="55"/><text class="t" x="315" y="183" text-anchor="middle">call_function.py</text><text class="m" x="315" y="200" text-anchor="middle">function_map: name → fn</text>
+          <rect class="bx" x="460" y="160" width="190" height="55"/><text class="t" x="555" y="183" text-anchor="middle">available_functions.py</text><text class="s" x="555" y="200" text-anchor="middle">JSON schemas × 4</text>
+
+          <rect class="bx" x="30" y="280" width="160" height="50"/><text class="t" x="110" y="301" text-anchor="middle">get_files_info</text><text class="s" x="110" y="318" text-anchor="middle">list dir · sizes</text>
+          <rect class="bx" x="210" y="280" width="160" height="50"/><text class="t" x="290" y="301" text-anchor="middle">get_file_content</text><text class="s" x="290" y="318" text-anchor="middle">read · truncate at 10k</text>
+          <rect class="bx" x="390" y="280" width="160" height="50"/><text class="t" x="470" y="301" text-anchor="middle">write_file</text><text class="s" x="470" y="318" text-anchor="middle">mkdir -p + write</text>
+          <rect class="bx" x="570" y="280" width="160" height="50"/><text class="t" x="650" y="301" text-anchor="middle">run_python_file</text><text class="s" x="650" y="318" text-anchor="middle">subprocess · 30 s · .py only</text>
+          <rect class="band" x="30" y="350" width="700" height="28"/><text class="t" x="380" y="368" text-anchor="middle">path jail · is_inside_dir() on every call · working dir fixed to ./calculator</text>
+
+          <line class="ln" x1="170" y1="70" x2="220" y2="70" marker-end="url(#a1)"/><text class="lbl" x="195" y="62" text-anchor="middle">prompt</text>
+          <line class="ln" x1="410" y1="70" x2="460" y2="70" marker-end="url(#a1)"/><text class="lbl" x="435" y="62" text-anchor="middle">messages</text>
+          <line class="ln" x1="600" y1="70" x2="640" y2="70" marker-end="url(#a1)"/><text class="lbl" x="620" y="62" text-anchor="middle">HTTPS</text>
+          <line class="ln" x1="555" y1="160" x2="555" y2="100" marker-end="url(#a1)"/><text class="lbl" x="562" y="135">tools=</text>
+          <line class="ln" x1="290" y1="100" x2="290" y2="160" marker-end="url(#a1)"/><text class="lbl" x="282" y="135" text-anchor="end">tool_calls[]</text>
+          <line class="ln" x1="350" y1="160" x2="350" y2="100" marker-end="url(#a1)"/><text class="warn" x="358" y="135" font-size="10.5">only 1 result appended</text>
+          <line class="ln" x1="315" y1="215" x2="315" y2="250"/>
+          <line class="ln" x1="110" y1="250" x2="650" y2="250"/>
+          <line class="ln" x1="110" y1="250" x2="110" y2="280" marker-end="url(#a1)"/>
+          <line class="ln" x1="290" y1="250" x2="290" y2="280" marker-end="url(#a1)"/>
+          <line class="ln" x1="470" y1="250" x2="470" y2="280" marker-end="url(#a1)"/>
+          <line class="ln" x1="650" y1="250" x2="650" y2="280" marker-end="url(#a1)"/>
+          <text class="lbl" x="325" y="243">fn(working_dir, **args) → str</text>
+        </svg>
+        <figcaption><b>One loop, one map, four tools, one jail.</b> Schemas and implementations are already separated and joined by name — the same shape crush and opencode use. The return arrow is the defect: <code>result</code> is overwritten inside the <code>for</code>, so a turn with several tool calls appends only the last result.</figcaption>
+      </figure>
+      <div class="cols">
+        <div>
+          <h3>Components</h3>
+          <dl class="comp">
+            <dt>main.py</dt><dd>CLI entry, OpenAI client on OpenRouter, the loop</dd>
+            <dt>available_functions</dt><dd>Tool declarations the model sees</dd>
+            <dt>call_function</dt><dd>Dispatch: <code>function_map[name](workdir, **args)</code> → <code>{role:"tool"}</code></dd>
+            <dt>functions/*</dt><dd>Four tools, each returning a string, errors included</dd>
+            <dt>is_inside_dir</dt><dd>The sandbox: <code>os.path.commonpath</code> against the working dir</dd>
+          </dl>
+        </div>
+        <div>
+          <h3>Abstractions</h3>
+          <pre><code><span class="c"># tool</span>
+tool(working_directory: str, **kwargs) -> str
+
+<span class="c"># message model: raw OpenAI dicts, in memory</span>
+messages: list = [system, user, assistant, {role: "tool", ...}]
+
+<span class="c"># no provider / session / event abstraction</span></code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 2. crush ================= -->
+    <section id="crush" class="ch">
+      <div class="sec-head">
+        <div class="idx">2</div>
+        <div>
+          <h2>crush — Charm's Go harness</h2>
+          <p class="sub">All rows present. One binary: the TUI is a client of a server on a Unix socket; the server hosts one <code>App</code> per workspace; <code>App</code> wires services, the agent, and a generic event broker. In "local mode" the same <code>App</code> runs inside the TUI process.</p>
+          <div class="repo">github.com/charmbracelet/crush · Go · internal/ ≈ 100k LOC</div>
+        </div>
+      </div>
+      <figure class="fig">
+        <svg viewBox="0 0 1000 700" role="img" aria-label="crush layered architecture: TUI and crush run talk to a client over HTTP on a Unix socket to a server, which routes to a backend workspace hosting an App; the App holds services, a pubsub broker, a Coordinator that builds SessionAgents streaming through fantasy.Agent and fantasy.Provider to LLM APIs, and decorated tools that request permissions; services persist to SQLite.">
+          <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <text class="lay" x="30" y="65">FRONTEND</text>
+          <text class="lay" x="30" y="150">CLIENT</text>
+          <text class="lay" x="30" y="230">SERVER</text>
+          <text class="lay" x="30" y="310">BACKEND</text>
+          <text class="lay" x="30" y="361">EVENTS</text>
+          <text class="lay" x="30" y="395">APP</text><text class="lay" x="30" y="409">one workspace</text>
+
+          <rect class="bx" x="200" y="30" width="180" height="60"/><text class="t" x="290" y="55" text-anchor="middle">internal/ui</text><text class="s" x="290" y="73" text-anchor="middle">Bubble Tea v2 TUI</text>
+          <rect class="bx" x="400" y="30" width="170" height="60"/><text class="t" x="485" y="55" text-anchor="middle">crush run</text><text class="s" x="485" y="73" text-anchor="middle">non-interactive</text>
+
+          <rect class="bx" x="200" y="120" width="300" height="50"/><text class="t" x="350" y="141" text-anchor="middle">internal/client</text><text class="s" x="350" y="158" text-anchor="middle">thin HTTP client</text>
+          <rect class="bx" x="520" y="120" width="120" height="50"/><text class="t" x="580" y="141" text-anchor="middle">internal/proto</text><text class="s" x="580" y="158" text-anchor="middle">wire types</text>
+
+          <rect class="bx" x="200" y="200" width="580" height="50"/><text class="t" x="490" y="221" text-anchor="middle">internal/server</text><text class="s" x="490" y="238" text-anchor="middle">net/http mux · unix socket crush-&lt;uid&gt;.sock · /v1/* · event stream · swagger</text>
+
+          <rect class="bx" x="200" y="280" width="430" height="50"/><text class="t" x="415" y="301" text-anchor="middle">internal/backend</text><text class="s" x="415" y="318" text-anchor="middle">Workspace = project dir = one App · client attach/detach · idle shutdown</text>
+          <rect class="bx" x="645" y="280" width="100" height="50"/><text class="t" x="695" y="301" text-anchor="middle">config</text><text class="s" x="695" y="318" text-anchor="middle">config.Service</text>
+
+          <rect class="band" x="200" y="345" width="640" height="22"/><text class="t" x="520" y="360" text-anchor="middle">pubsub.Broker[T] · app.events → tea.Msg · message updates · permission requests · run complete</text>
+
+          <rect class="rg" x="190" y="378" width="655" height="292"/>
+          <rect class="bx" x="210" y="395" width="110" height="55"/><text class="t" x="265" y="418" text-anchor="middle">session</text><text class="s" x="265" y="434" text-anchor="middle">session.Service</text>
+          <rect class="bx" x="330" y="395" width="110" height="55"/><text class="t" x="385" y="418" text-anchor="middle">message</text><text class="s" x="385" y="434" text-anchor="middle">parts · debounced</text>
+          <rect class="bx" x="450" y="395" width="110" height="55"/><text class="t" x="505" y="418" text-anchor="middle">permission</text><text class="s" x="505" y="434" text-anchor="middle">Request() blocks</text>
+          <rect class="bx" x="570" y="395" width="110" height="55"/><text class="t" x="625" y="418" text-anchor="middle">question</text><text class="s" x="625" y="434" text-anchor="middle">tool asks user</text>
+          <rect class="bx" x="690" y="395" width="110" height="55"/><text class="t" x="745" y="418" text-anchor="middle">history</text><text class="s" x="745" y="434" text-anchor="middle">file versions</text>
+          <rect class="bx soft" x="870" y="395" width="110" height="55"/><text class="t" x="925" y="418" text-anchor="middle">SQLite</text><text class="s" x="925" y="434" text-anchor="middle">sqlc · migrations</text>
+
+          <rect class="bx" x="210" y="480" width="140" height="70"/><text class="t" x="280" y="502" text-anchor="middle">agent.Coordinator</text><text class="s" x="280" y="518" text-anchor="middle">buildProvider · buildTools</text><text class="s" x="280" y="534" text-anchor="middle">named agents: coder · task</text>
+          <rect class="bx hi" x="370" y="480" width="135" height="70"/><text class="t" x="437" y="502" text-anchor="middle">SessionAgent</text><text class="s" x="437" y="518" text-anchor="middle">Run loop · queue</text><text class="s" x="437" y="534" text-anchor="middle">cancel · summarize</text>
+          <rect class="bx" x="535" y="480" width="120" height="70"/><text class="t" x="595" y="502" text-anchor="middle">fantasy.Agent</text><text class="s" x="595" y="518" text-anchor="middle">streams one turn</text>
+          <rect class="bx" x="675" y="480" width="140" height="70"/><text class="t" x="745" y="502" text-anchor="middle">fantasy.Provider</text><text class="s" x="745" y="518" text-anchor="middle">anthropic · openai</text><text class="s" x="745" y="534" text-anchor="middle">bedrock · vertex …</text>
+          <rect class="bx ext" x="870" y="480" width="110" height="70"/><text class="t" x="925" y="510" text-anchor="middle">LLM APIs</text>
+
+          <rect class="band" x="210" y="590" width="625" height="18"/><text class="s" x="522" y="603" text-anchor="middle">decorators: hookedTool (PreToolUse shell hooks) → permission.Request</text>
+          <rect class="bx" x="210" y="615" width="250" height="45"/><text class="t" x="335" y="634" text-anchor="middle">agent/tools/</text><text class="s" x="335" y="650" text-anchor="middle">bash edit view grep glob ls write fetch …</text>
+          <rect class="bx" x="480" y="615" width="100" height="45"/><text class="t" x="530" y="642" text-anchor="middle">mcp tools</text>
+          <rect class="bx" x="600" y="615" width="90" height="45"/><text class="t" x="645" y="642" text-anchor="middle">lsp tools</text>
+          <rect class="bx" x="710" y="615" width="125" height="45"/><text class="t" x="772" y="634" text-anchor="middle">agent tool</text><text class="s" x="772" y="650" text-anchor="middle">→ task sub-session</text>
+
+          <line class="ln" x1="310" y1="90" x2="310" y2="120" marker-start="url(#a2)" marker-end="url(#a2)"/><text class="lbl" x="318" y="108">calls + events</text>
+          <line class="ln" x1="485" y1="90" x2="485" y2="120" marker-end="url(#a2)"/>
+          <line class="ln" x1="350" y1="170" x2="350" y2="200" marker-start="url(#a2)" marker-end="url(#a2)"/><text class="lbl" x="358" y="188">HTTP over the socket</text>
+          <line class="ln" x1="300" y1="250" x2="300" y2="280" marker-end="url(#a2)"/><text class="lbl" x="308" y="268">route → workspace</text>
+          <path class="ln" d="M200,330 V515 H210" marker-end="url(#a2)"/><text class="lbl" x="193" y="470" text-anchor="end">Run(sessionID, prompt)</text>
+          <line class="ln" x1="760" y1="345" x2="760" y2="250" marker-end="url(#a2)"/><text class="lbl" x="768" y="300">events → attached clients</text>
+          <line class="ln" x1="385" y1="395" x2="385" y2="367" marker-end="url(#a2)"/>
+          <line class="ln" x1="505" y1="395" x2="505" y2="367" marker-end="url(#a2)"/>
+          <line class="ln" x1="625" y1="395" x2="625" y2="367" marker-end="url(#a2)"/><text class="lbl" x="633" y="384">publish</text>
+          <line class="ln" x1="400" y1="480" x2="400" y2="450" marker-end="url(#a2)"/><text class="lbl" x="408" y="468">history · deltas</text>
+          <line class="ln" x1="350" y1="515" x2="370" y2="515" marker-end="url(#a2)"/>
+          <line class="ln" x1="505" y1="515" x2="535" y2="515" marker-end="url(#a2)"/>
+          <line class="ln" x1="655" y1="515" x2="675" y2="515" marker-end="url(#a2)"/>
+          <line class="ln" x1="815" y1="515" x2="870" y2="515" marker-end="url(#a2)"/><text class="lbl" x="842" y="507" text-anchor="middle">HTTPS</text>
+          <line class="ln" x1="595" y1="550" x2="595" y2="590" marker-end="url(#a2)"/><text class="lbl" x="603" y="575">tool calls</text>
+          <line class="gap" x1="520" y1="508" x2="520" y2="522"/>
+          <line class="ln" x1="520" y1="590" x2="520" y2="450" marker-end="url(#a2)"/><text class="lbl" x="512" y="575" text-anchor="end">permission.Request() · blocks until the UI answers</text>
+          <line class="ln" x1="800" y1="422" x2="870" y2="422" marker-end="url(#a2)"/>
+        </svg>
+        <figcaption><b>Services first, agent second, tools third — and the broker on top of all of them.</b> Everything inside the dashed <code>App</code> publishes into <code>pubsub.Broker[T]</code>; the server relays it to attached clients; the TUI's <code>Update</code> switches on <code>pubsub.Event[T]</code>. Nothing inside <code>App</code> imports <code>ui</code>. The Coordinator builds providers and toolsets once; a <code>SessionAgent</code> per named agent runs the loop with a per-session queue and cancel.</figcaption>
+      </figure>
+      <div class="cols">
+        <div>
+          <h3>Components</h3>
+          <dl class="comp">
+            <dt>cmd/</dt><dd>Cobra: <code>root</code> (TUI), <code>run</code>, <code>server</code>, <code>login</code>, <code>models</code></dd>
+            <dt>ui/</dt><dd>Bubble Tea v2; consumes events, calls the client</dd>
+            <dt>client/ proto/</dt><dd>HTTP client + shared JSON types for <code>/v1/*</code></dd>
+            <dt>server/</dt><dd><code>net/http</code> mux on a Unix socket; streams events</dd>
+            <dt>backend/</dt><dd>Hosts N workspaces × M clients; idle shutdown</dd>
+            <dt>app/</dt><dd><code>App</code> struct: opens DB, builds every service, coordinator, LSP, MCP, brokers</dd>
+            <dt>agent/</dt><dd><code>Coordinator</code> + <code>SessionAgent</code> + <code>tools/</code> + prompt templates</dd>
+            <dt>pubsub/</dt><dd>Generic <code>Broker[T]</code> with must-deliver mode</dd>
+            <dt>permission/ question/ hooks/</dt><dd>Human-in-the-loop and user shell hooks</dd>
+            <dt>db/</dt><dd>SQL → sqlc → typed Go; migrations in the binary</dd>
+          </dl>
+        </div>
+        <div>
+          <h3>Abstractions</h3>
+          <pre><code><span class="c">// tool (charm.land/fantasy)</span>
+<span class="k">type</span> AgentTool <span class="k">interface</span> {
+    Info() ToolInfo                  <span class="c">// name, desc, JSON schema</span>
+    Run(ctx, ToolCall) (ToolResponse, error)
+}
+
+<span class="c">// services — one small interface per package</span>
+<span class="k">type</span> session.Service <span class="k">interface</span> { Create · Get · List · Save · … }
+<span class="k">type</span> message.Service <span class="k">interface</span> { Create · Update · List · Flush · … }
+<span class="k">type</span> permission.Service <span class="k">interface</span> {
+    Request(ctx, CreatePermissionRequest) (<span class="k">bool</span>, error)
+    Grant · GrantPersistent · Deny · AutoApproveSession
+}
+
+<span class="c">// events</span>
+<span class="k">type</span> Broker[T any] <span class="k">struct</span>{…}
+<span class="k">func</span> (b *Broker[T]) Subscribe(ctx) &lt;-<span class="k">chan</span> Event[T]
+<span class="k">func</span> (b *Broker[T]) Publish(EventType, T)
+
+<span class="c">// loop entry</span>
+Coordinator.Run(ctx, sessionID, prompt) (*fantasy.AgentResult, error)</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 3. opencode ================= -->
+    <section id="opencode" class="oc">
+      <div class="sec-head">
+        <div class="idx">3</div>
+        <div>
+          <h2>opencode — server-first platform</h2>
+          <p class="sub">Same rows, but the server is the product and every UI is a client. Packages enforce the direction: <em>schema → core / protocol → server</em>; clients depend only on schema + protocol. The runtime is Effect services wired as layers.</p>
+          <div class="repo">github.com/anomalyco/opencode · TypeScript on Bun · 27 packages</div>
+        </div>
+      </div>
+      <figure class="fig">
+        <svg viewBox="0 0 1000 720" role="img" aria-label="opencode layered architecture: TUI, desktop, web and integration clients use a generated client or the embedded sdk-next to reach the HttpApi server; a typed bus streams events back over SSE and WebSocket; core holds session, compaction, agent, permission and config services, the SessionPrompt drain loop, the SessionProcessor that turns a provider stream into message parts, an AI SDK adapter, and a ToolRegistry wrapping tools; storage is SQLite via Drizzle; schema and protocol are the shared contracts.">
+          <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <text class="lay" x="30" y="65">CLIENTS</text>
+          <text class="lay" x="30" y="150">ACCESS</text>
+          <text class="lay" x="30" y="230">SERVER</text>
+          <text class="lay" x="30" y="284">EVENTS</text>
+          <text class="lay" x="30" y="322">CORE</text><text class="lay" x="30" y="336">runtime</text>
+          <text class="lay" x="30" y="678">CONTRACTS</text>
+
+          <rect class="bx" x="200" y="30" width="130" height="60"/><text class="t" x="265" y="55" text-anchor="middle">tui</text><text class="s" x="265" y="73" text-anchor="middle">OpenTUI + Solid</text>
+          <rect class="bx" x="345" y="30" width="130" height="60"/><text class="t" x="410" y="55" text-anchor="middle">app / desktop</text><text class="s" x="410" y="73" text-anchor="middle">Solid</text>
+          <rect class="bx" x="490" y="30" width="110" height="60"/><text class="t" x="545" y="55" text-anchor="middle">web</text><text class="s" x="545" y="73" text-anchor="middle">browser</text>
+          <rect class="bx" x="615" y="30" width="160" height="60"/><text class="t" x="695" y="55" text-anchor="middle">ide · slack · github</text><text class="s" x="695" y="73" text-anchor="middle">integrations</text>
+
+          <rect class="bx" x="200" y="120" width="330" height="50"/><text class="t" x="365" y="141" text-anchor="middle">client</text><text class="s" x="365" y="158" text-anchor="middle">generated from HttpApi · depends on schema + protocol only</text>
+          <rect class="bx" x="550" y="120" width="225" height="50"/><text class="t" x="662" y="141" text-anchor="middle">sdk-next</text><text class="s" x="662" y="158" text-anchor="middle">client + core + server · embedded</text>
+
+          <rect class="bx" x="200" y="200" width="575" height="50"/><text class="t" x="487" y="221" text-anchor="middle">server</text><text class="s" x="487" y="238" text-anchor="middle">HttpApi routes · handlers · auth · PTY · SSE + WebSocket</text>
+
+          <rect class="band" x="200" y="268" width="575" height="22"/><text class="t" x="487" y="283" text-anchor="middle">bus · typed events → SSE / WS → every attached client</text>
+
+          <rect class="rg" x="190" y="305" width="600" height="315"/>
+          <rect class="bx" x="210" y="330" width="100" height="55"/><text class="t" x="260" y="353" text-anchor="middle">session</text><text class="s" x="260" y="369" text-anchor="middle">history · inbox</text>
+          <rect class="bx" x="320" y="330" width="110" height="55"/><text class="t" x="375" y="353" text-anchor="middle">compaction</text><text class="s" x="375" y="369" text-anchor="middle">auto on overflow</text>
+          <rect class="bx" x="440" y="330" width="100" height="55"/><text class="t" x="490" y="353" text-anchor="middle">agent</text><text class="s" x="490" y="369" text-anchor="middle">build · plan · sub</text>
+          <rect class="bx" x="550" y="330" width="105" height="55"/><text class="t" x="602" y="353" text-anchor="middle">permission</text><text class="s" x="602" y="369" text-anchor="middle">rules allow/deny/ask</text>
+          <rect class="bx" x="665" y="330" width="110" height="55"/><text class="t" x="720" y="353" text-anchor="middle">config</text><text class="s" x="720" y="369" text-anchor="middle">json + markdown</text>
+          <rect class="bx soft" x="830" y="330" width="140" height="55"/><text class="t" x="900" y="353" text-anchor="middle">SQLite (Drizzle)</text><text class="s" x="900" y="369" text-anchor="middle">storage/ · snapshot/</text>
+
+          <rect class="bx hi" x="210" y="420" width="150" height="70"/><text class="t" x="285" y="442" text-anchor="middle">SessionPrompt</text><text class="s" x="285" y="458" text-anchor="middle">drain loop</text><text class="s" x="285" y="474" text-anchor="middle">ensureRunning · cancel</text>
+          <rect class="bx hi" x="385" y="420" width="175" height="70"/><text class="t" x="472" y="442" text-anchor="middle">SessionProcessor</text><text class="s" x="472" y="458" text-anchor="middle">one provider turn</text><text class="s" x="472" y="474" text-anchor="middle">stream → parts + events</text>
+          <rect class="bx" x="585" y="420" width="120" height="70"/><text class="t" x="645" y="442" text-anchor="middle">llm.ts</text><text class="s" x="645" y="458" text-anchor="middle">AI SDK +</text><text class="s" x="645" y="474" text-anchor="middle">provider/transform</text>
+          <rect class="bx ext" x="830" y="420" width="140" height="70"/><text class="t" x="900" y="450" text-anchor="middle">Providers</text><text class="s" x="900" y="468" text-anchor="middle">Anthropic · OpenAI …</text>
+
+          <rect class="band" x="210" y="525" width="565" height="18"/><text class="s" x="492" y="538" text-anchor="middle">ToolRegistry · wrap(): validate args · truncate output · trace · size limit</text>
+          <rect class="bx" x="210" y="550" width="250" height="50"/><text class="t" x="335" y="571" text-anchor="middle">tool/</text><text class="s" x="335" y="588" text-anchor="middle">read edit write bash grep glob patch task …</text>
+          <rect class="bx" x="480" y="550" width="90" height="50"/><text class="t" x="525" y="580" text-anchor="middle">mcp</text>
+          <rect class="bx" x="590" y="550" width="80" height="50"/><text class="t" x="630" y="580" text-anchor="middle">lsp</text>
+          <rect class="bx" x="690" y="550" width="85" height="50"/><text class="t" x="732" y="580" text-anchor="middle">codemode</text>
+          <rect class="bx ext" x="830" y="525" width="140" height="75"/><text class="t" x="900" y="548" text-anchor="middle">extensions</text><text class="s" x="900" y="566" text-anchor="middle">JS plugins · MCP servers</text><text class="s" x="900" y="582" text-anchor="middle">skills · commands</text>
+
+          <rect class="bx" x="210" y="650" width="270" height="45"/><text class="t" x="345" y="669" text-anchor="middle">schema</text><text class="s" x="345" y="686" text-anchor="middle">shared types · imported by client, core, server</text>
+          <rect class="bx" x="505" y="650" width="270" height="45"/><text class="t" x="640" y="669" text-anchor="middle">protocol</text><text class="s" x="640" y="686" text-anchor="middle">HttpApi definition · imported by client, server</text>
+
+          <line class="ln" x1="265" y1="90" x2="265" y2="120" marker-end="url(#a3)"/>
+          <line class="ln" x1="410" y1="90" x2="410" y2="120" marker-end="url(#a3)"/>
+          <line class="ln" x1="545" y1="90" x2="545" y2="120" marker-end="url(#a3)"/>
+          <line class="ln" x1="695" y1="90" x2="695" y2="120" marker-end="url(#a3)"/><text class="lbl" x="703" y="108">embedded or remote</text>
+          <line class="ln" x1="365" y1="170" x2="365" y2="200" marker-end="url(#a3)"/><text class="lbl" x="373" y="188">HTTP</text>
+          <line class="ln" x1="660" y1="170" x2="660" y2="200" marker-end="url(#a3)"/><text class="lbl" x="668" y="188">in-memory HttpClient</text>
+          <line class="ln" x1="740" y1="268" x2="740" y2="250" marker-end="url(#a3)"/><text class="lbl" x="748" y="262">SSE / WS</text>
+          <path class="ln" d="M200,250 V455 H210" marker-end="url(#a3)"/><text class="lbl" x="193" y="440" text-anchor="end">prompt(sessionID, parts)</text>
+          <line class="ln" x1="260" y1="420" x2="260" y2="385" marker-end="url(#a3)"/>
+          <line class="ln" x1="340" y1="420" x2="340" y2="385" marker-end="url(#a3)"/><text class="lbl" x="300" y="408" text-anchor="middle">inbox · compaction</text>
+          <line class="ln" x1="555" y1="420" x2="555" y2="385" marker-end="url(#a3)"/><text class="lbl" x="562" y="408">ask()</text>
+          <line class="ln" x1="260" y1="330" x2="260" y2="290" marker-end="url(#a3)"/>
+          <line class="ln" x1="600" y1="330" x2="600" y2="290" marker-end="url(#a3)"/><text class="lbl" x="608" y="322">publish</text>
+          <line class="ln" x1="360" y1="455" x2="385" y2="455" marker-end="url(#a3)"/>
+          <line class="ln" x1="560" y1="455" x2="585" y2="455" marker-end="url(#a3)"/>
+          <line class="ln" x1="705" y1="455" x2="830" y2="455" marker-end="url(#a3)"/><text class="lbl" x="768" y="447" text-anchor="middle">stream</text>
+          <line class="ln" x1="470" y1="490" x2="470" y2="525" marker-end="url(#a3)"/><text class="lbl" x="478" y="512">tool-call → execute(args, ctx)</text>
+          <line class="ln" x1="830" y1="562" x2="790" y2="562" marker-end="url(#a3)"/><text class="lbl" x="810" y="553" text-anchor="middle">loaded into core</text>
+          <line class="ln dim" x1="790" y1="357" x2="830" y2="357" marker-end="url(#a3)"/><text class="lbl" x="810" y="349" text-anchor="middle">persists</text>
+        </svg>
+        <figcaption><b>Two loops, not one.</b> <code>SessionPrompt</code> drains a session — promote inbox, check compaction, build the system context, run a turn, act on <code>stop | continue | compact</code>. <code>SessionProcessor</code> runs exactly one provider turn and is the seam between the LLM protocol and everything else: it turns stream events into persisted message <em>parts</em> and bus events, and executes tools on <code>tool-call</code>. The contracts row is what lets every client stay ignorant of core.</figcaption>
+      </figure>
+      <div class="cols">
+        <div>
+          <h3>Components</h3>
+          <dl class="comp">
+            <dt>schema · protocol</dt><dd>Shared types and the <code>HttpApi</code>; everything else derives from them</dd>
+            <dt>core</dt><dd>Agents, sessions, permissions, providers, storage, PTY, plugins — Effect services</dd>
+            <dt>server</dt><dd>Routes, handlers, auth, event streaming</dd>
+            <dt>client · sdk-next</dt><dd>Generated client; SDK that can embed the whole server in-process</dd>
+            <dt>opencode</dt><dd>The CLI binary: wires core + server, owns <code>session/</code>, <code>tool/</code>, <code>mcp/</code>, <code>plugin/</code></dd>
+            <dt>session/prompt.ts</dt><dd>Drain loop, commands, subtasks</dd>
+            <dt>session/processor.ts</dt><dd>Stream → parts + events; tool execution</dd>
+            <dt>tool/registry.ts</dt><dd>Per-agent, per-provider toolset; <code>wrap()</code> decorators</dd>
+            <dt>tui · app · web</dt><dd>Clients over the SDK; never import core</dd>
+          </dl>
+        </div>
+        <div>
+          <h3>Abstractions</h3>
+          <pre><code><span class="c">// tool</span>
+<span class="k">interface</span> Def&lt;Params, M&gt; {
+  id, description, parameters: Schema
+  execute(args, ctx: Context): Effect&lt;ExecuteResult&lt;M&gt;&gt;
+}
+<span class="k">type</span> Context = { sessionID, messageID, agent, abort,
+  messages, metadata(…), ask(…) }
+<span class="k">type</span> ExecuteResult = { title, metadata, output, attachments? }
+
+<span class="c">// message = typed parts</span>
+MessageV2.WithParts = { info, parts: Part[] }
+Part = text | reasoning | tool | file | subtask | step-start | step-finish
+
+<span class="c">// loop outcome</span>
+processor.process(…) → <span class="s">"stop"</span> | <span class="s">"continue"</span> | <span class="s">"compact"</span>
+
+<span class="c">// permission rule</span>
+{ permission, action: allow | deny | ask, pattern }
+
+<span class="c">// services are Effect layers</span>
+<span class="k">class</span> Service <span class="k">extends</span> Context.Service&lt;Service, Interface&gt;()(<span class="s">"@opencode/SessionPrompt"</span>)</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= STACK ================= -->
+    <section id="stack">
+      <div class="sec-head">
+        <div class="idx">≡</div>
+        <div>
+          <h2>Layer by layer</h2>
+          <p class="sub">The same rows as the anatomy figure, one column per harness. A dashed cell means the layer doesn't exist there.</p>
+        </div>
+      </div>
+      <div class="stack-wrap">
+      <div class="stack">
+        <div class="h"></div><div class="h py">ai-agent</div><div class="h ch">crush</div><div class="h oc">opencode</div>
+
+        <div class="row">Frontend</div>
+        <div class="cell py"><span><b>stdout</b>print() at the end</span></div>
+        <div class="cell ch"><span><b>internal/ui</b>Bubble Tea v2; also <code>crush run</code></span></div>
+        <div class="cell oc"><span><b>tui · app · web · ide</b>OpenTUI/Solid; all are API clients</span></div>
+
+        <div class="row">Transport</div>
+        <div class="cell none">in-process</div>
+        <div class="cell ch"><span><b>client / proto / server</b>HTTP on a Unix socket; or local mode</span></div>
+        <div class="cell oc"><span><b>HttpApi + generated client</b>HTTP; sdk-next embeds in-memory</span></div>
+
+        <div class="row">Wiring</div>
+        <div class="cell none">module-level globals</div>
+        <div class="cell ch"><span><b>app.App</b>struct of services per workspace</span></div>
+        <div class="cell oc"><span><b>Effect Layers</b><code>LayerNode.make</code> per service</span></div>
+
+        <div class="row">Loop</div>
+        <div class="cell py"><span><b>call_model()</b>≤15 iterations, blocking</span></div>
+        <div class="cell ch"><span><b>SessionAgent.Run</b>queue · cancel · stream via fantasy.Agent</span></div>
+        <div class="cell oc"><span><b>SessionPrompt + Processor</b>drain → turn → stop|continue|compact</span></div>
+
+        <div class="row">Provider</div>
+        <div class="cell py"><span><b>openai SDK</b>one vendor, hardcoded</span></div>
+        <div class="cell ch"><span><b>fantasy.Provider</b>anthropic · openai · bedrock · vertex · …</span></div>
+        <div class="cell oc"><span><b>AI SDK + transform</b>catalog-driven; per-provider quirks</span></div>
+
+        <div class="row">Tools</div>
+        <div class="cell py"><span><b>function_map</b>4 fs tools; path jail</span></div>
+        <div class="cell ch"><span><b>fantasy.AgentTool</b>built-in · MCP · LSP · sub-agent; hooks decorator</span></div>
+        <div class="cell oc"><span><b>ToolRegistry.Def</b>built-in · MCP · LSP · codemode; wrap() decorator</span></div>
+
+        <div class="row">Human in loop</div>
+        <div class="cell none">—</div>
+        <div class="cell ch"><span><b>permission · question</b>Request() blocks until the UI answers</span></div>
+        <div class="cell oc"><span><b>permission ruleset</b>allow / deny / ask by pattern; ctx.ask()</span></div>
+
+        <div class="row">Persistence</div>
+        <div class="cell none">python list</div>
+        <div class="cell ch"><span><b>SQLite via sqlc</b>session · message · history</span></div>
+        <div class="cell oc"><span><b>SQLite via Drizzle</b>+ git snapshots for revert</span></div>
+
+        <div class="row">Events</div>
+        <div class="cell none">—</div>
+        <div class="cell ch"><span><b>pubsub.Broker[T]</b>→ tea.Msg; relayed by server</span></div>
+        <div class="cell oc"><span><b>bus</b>typed events → SSE / WebSocket</span></div>
+
+        <div class="row">Compaction</div>
+        <div class="cell none">—</div>
+        <div class="cell ch"><span><b>Summarize</b>small model, on demand</span></div>
+        <div class="cell oc"><span><b>compaction service</b>auto on overflow; loop outcome</span></div>
+
+        <div class="row">Extensibility</div>
+        <div class="cell none">—</div>
+        <div class="cell ch"><span><b>MCP · skills · hooks</b>crushrc bash config</span></div>
+        <div class="cell oc"><span><b>MCP · plugins · skills · commands · ACP</b></span></div>
+      </div>
+      </div>
+    </section>
+
+    <!-- ================= ABSTRACTIONS ================= -->
+    <section id="abstractions">
+      <div class="sec-head">
+        <div class="idx">◇</div>
+        <div>
+          <h2>Abstractions on the edges</h2>
+          <p class="sub">Four edges leave the agent loop. Each harness names the interface on that edge differently, but the edge is the same — and the message/part data model is what crosses all four.</p>
+        </div>
+      </div>
+      <figure class="fig">
+        <svg viewBox="0 0 960 480" role="img" aria-label="Abstraction map: the agent loop has four edges — to the frontend via an event bus and command API, to tools via a tool interface, to the LLM via a provider stream interface, and to storage via service interfaces — with each harness's concrete name listed on each edge; the message-as-parts data model crosses all edges.">
+          <defs><marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <rect class="bx" x="380" y="30" width="200" height="55"/><text class="t" x="480" y="53" text-anchor="middle">Frontend</text><text class="s" x="480" y="70" text-anchor="middle">TUI · CLI · web</text>
+          <rect class="bx" x="40" y="190" width="200" height="80"/><text class="t" x="140" y="220" text-anchor="middle">Tools &amp; capabilities</text><text class="s" x="140" y="238" text-anchor="middle">fs · shell · MCP · LSP</text><text class="s" x="140" y="254" text-anchor="middle">sub-agents</text>
+          <rect class="bx hi" x="380" y="190" width="200" height="80"/><text class="t" x="480" y="220" text-anchor="middle">Agent loop</text><text class="s" x="480" y="238" text-anchor="middle">the one component that</text><text class="s" x="480" y="254" text-anchor="middle">knows all four edges</text>
+          <rect class="bx" x="720" y="190" width="200" height="80"/><text class="t" x="820" y="220" text-anchor="middle">LLM provider</text><text class="s" x="820" y="238" text-anchor="middle">Anthropic · OpenAI</text><text class="s" x="820" y="254" text-anchor="middle">OpenRouter · Bedrock …</text>
+          <rect class="bx" x="380" y="370" width="200" height="55"/><text class="t" x="480" y="393" text-anchor="middle">Storage</text><text class="s" x="480" y="410" text-anchor="middle">SQLite · memory</text>
+
+          <rect class="bx ext" x="40" y="30" width="280" height="85"/>
+          <text class="t" x="55" y="52">Data model: Message = [Part]</text>
+          <text class="s" x="55" y="68">text · reasoning · tool-call · tool-result · file</text>
+          <text class="m ch" x="55" y="84">crush  message.Message parts (JSON in SQLite)</text>
+          <text class="m oc" x="55" y="98">opencode  MessageV2.WithParts · ai-agent: raw dicts</text>
+
+          <line class="ln" x1="480" y1="190" x2="480" y2="85" marker-start="url(#a5)" marker-end="url(#a5)"/>
+          <rect class="band" x="418" y="125" width="124" height="24"/><text class="t" x="480" y="141" text-anchor="middle" font-size="11">Events + commands</text>
+          <text class="m py" x="555" y="122">ai-agent  print()</text>
+          <text class="m ch" x="555" y="136">crush  pubsub.Broker[T] + HTTP / socket</text>
+          <text class="m oc" x="555" y="150">opencode  bus → SSE / WS + HttpApi</text>
+
+          <line class="ln" x1="380" y1="230" x2="240" y2="230" marker-start="url(#a5)" marker-end="url(#a5)"/>
+          <rect class="band" x="255" y="218" width="110" height="24"/><text class="t" x="310" y="234" text-anchor="middle" font-size="11">Tool interface</text>
+          <text class="m py" x="310" y="290" text-anchor="middle">ai-agent  fn(workdir, **kw) → str</text>
+          <text class="m ch" x="310" y="304" text-anchor="middle">crush  AgentTool{ Info(), Run(ctx, call) }</text>
+          <text class="m oc" x="310" y="318" text-anchor="middle">opencode  Def{ parameters, execute(args, ctx) }</text>
+
+          <line class="ln" x1="580" y1="230" x2="720" y2="230" marker-start="url(#a5)" marker-end="url(#a5)"/>
+          <rect class="band" x="595" y="218" width="110" height="24"/><text class="t" x="650" y="234" text-anchor="middle" font-size="11">Provider stream</text>
+          <text class="m py" x="650" y="290" text-anchor="middle">ai-agent  openai SDK, blocking</text>
+          <text class="m ch" x="650" y="304" text-anchor="middle">crush  fantasy.Provider → fantasy.Agent</text>
+          <text class="m oc" x="650" y="318" text-anchor="middle">opencode  AI SDK + provider/transform</text>
+
+          <line class="ln" x1="480" y1="270" x2="480" y2="370" marker-start="url(#a5)" marker-end="url(#a5)"/>
+          <rect class="band" x="418" y="308" width="124" height="24"/><text class="t" x="480" y="324" text-anchor="middle" font-size="11">Service interfaces</text>
+          <text class="m py" x="480" y="447" text-anchor="middle">ai-agent  none — a python list</text>
+          <text class="m ch" x="480" y="461" text-anchor="middle">crush  session.Service · message.Service · permission.Service (sqlc)</text>
+          <text class="m oc" x="480" y="475" text-anchor="middle">opencode  Effect Context.Service layers over Drizzle</text>
+        </svg>
+        <figcaption><b>Name the edges before the packages.</b> Whatever the Go packages end up called, these four interfaces plus the part-based message type are the contract; each is small (two to five methods) in both mature harnesses.</figcaption>
+      </figure>
+    </section>
+
+    <!-- ================= GO PACKAGE MAP ================= -->
+    <section id="go">
+      <div class="sec-head">
+        <div class="idx" style="color:var(--accent)">→</div>
+        <div>
+          <h2>Proposed Go package map</h2>
+          <p class="sub">A synthesis, not a decision: crush's package layout and broker, opencode's part-based messages and loop outcome, ai-agent's sandbox conventions — in-process first, with the wiring kept so a socket server can be added in front later.</p>
+        </div>
+      </div>
+      <figure class="fig">
+        <svg viewBox="0 0 960 520" role="img" aria-label="Proposed ai-agent-go packages: cmd and ui on top; a pubsub Broker band; an app package wiring everything; an agent Runner calling a provider Stream interface to the LLM API; a tool package with a Tool interface asking a permission Service; session and message service interfaces over a store; config read by all.">
+          <defs><marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <text class="lay" x="30" y="60">CLI / UI</text>
+          <text class="lay" x="30" y="120">EVENTS</text>
+          <text class="lay" x="30" y="180">WIRING</text>
+          <text class="lay" x="30" y="270">RUNTIME</text>
+          <text class="lay" x="30" y="370">CAPABILITIES</text>
+          <text class="lay" x="30" y="465">STATE</text>
+
+          <rect class="bx" x="200" y="30" width="200" height="50"/><text class="t" x="300" y="51" text-anchor="middle">cmd/</text><text class="s" x="300" y="68" text-anchor="middle">cobra: tui · run (one-shot)</text>
+          <rect class="bx" x="430" y="30" width="200" height="50"/><text class="t" x="530" y="51" text-anchor="middle">ui/</text><text class="s" x="530" y="68" text-anchor="middle">Bubble Tea · subscribes to Broker</text>
+
+          <rect class="band" x="200" y="105" width="580" height="22"/><text class="t" x="490" y="120" text-anchor="middle">pubsub/  Broker[T] — Event[Message] · Event[PermissionRequest] · RunComplete</text>
+
+          <rect class="bx" x="200" y="150" width="580" height="50"/><text class="t" x="490" y="171" text-anchor="middle">app/</text><text class="s" x="490" y="188" text-anchor="middle">App{ Sessions, Messages, Permissions, Tools, Provider, Runner, Events } — in-process now; a socket server in front later</text>
+
+          <rect class="bx hi" x="200" y="230" width="180" height="70"/><text class="t" x="290" y="252" text-anchor="middle">agent/</text><text class="m" x="290" y="268" text-anchor="middle">Runner.Run(ctx, sessionID, prompt)</text><text class="s" x="290" y="284" text-anchor="middle">outcome: stop | continue | compact</text>
+          <rect class="bx" x="410" y="230" width="180" height="70"/><text class="t" x="500" y="252" text-anchor="middle">provider/</text><text class="m" x="500" y="268" text-anchor="middle">Stream(ctx, Request) &lt;-chan Event</text><text class="s" x="500" y="284" text-anchor="middle">anthropic · openai-compatible</text>
+          <rect class="bx ext" x="630" y="230" width="150" height="70"/><text class="t" x="705" y="260" text-anchor="middle">LLM API</text><text class="s" x="705" y="278" text-anchor="middle">external</text>
+
+          <rect class="bx" x="200" y="335" width="180" height="60"/><text class="t" x="290" y="356" text-anchor="middle">tool/</text><text class="m" x="290" y="372" text-anchor="middle">Tool{ Info(), Run(ctx, Call) }</text><text class="s" x="290" y="387" text-anchor="middle">fs · shell · later: mcp, sub-agent</text>
+          <rect class="bx" x="410" y="335" width="180" height="60"/><text class="t" x="500" y="356" text-anchor="middle">permission/</text><text class="m" x="500" y="372" text-anchor="middle">Request(ctx, req) (bool, error)</text><text class="s" x="500" y="387" text-anchor="middle">allow-list · path jail · blocks on UI</text>
+          <rect class="bx" x="630" y="335" width="150" height="60"/><text class="t" x="705" y="356" text-anchor="middle">config/</text><text class="s" x="705" y="372" text-anchor="middle">working dir · model</text><text class="s" x="705" y="387" text-anchor="middle">keys · read by all</text>
+
+          <rect class="bx" x="200" y="430" width="180" height="60"/><text class="t" x="290" y="451" text-anchor="middle">session/ · message/</text><text class="m" x="290" y="467" text-anchor="middle">Service interfaces</text><text class="s" x="290" y="482" text-anchor="middle">Message = []Part</text>
+          <rect class="bx soft" x="410" y="430" width="180" height="60"/><text class="t" x="500" y="451" text-anchor="middle">store/</text><text class="s" x="500" y="467" text-anchor="middle">memory now · sqlite later</text><text class="s" x="500" y="482" text-anchor="middle">same interfaces</text>
+
+          <line class="ln" x1="300" y1="80" x2="300" y2="150" marker-end="url(#a6)"/><text class="lbl" x="308" y="98">Run() · Cancel()</text>
+          <line class="ln" x1="530" y1="105" x2="530" y2="80" marker-end="url(#a6)"/><text class="lbl" x="538" y="98">Subscribe()</text>
+          <line class="ln" x1="290" y1="200" x2="290" y2="230" marker-end="url(#a6)"/>
+          <line class="gap" x1="700" y1="150" x2="700" y2="200"/>
+          <line class="ln" x1="700" y1="230" x2="700" y2="127" marker-end="url(#a6)"/><text class="lbl" x="708" y="218">Publish()</text>
+          <line class="ln" x1="380" y1="265" x2="410" y2="265" marker-end="url(#a6)"/>
+          <line class="ln" x1="590" y1="265" x2="630" y2="265" marker-end="url(#a6)"/><text class="lbl" x="610" y="257" text-anchor="middle">stream</text>
+          <line class="ln" x1="290" y1="300" x2="290" y2="335" marker-end="url(#a6)"/><text class="lbl" x="298" y="322">Run(call)</text>
+          <line class="ln" x1="380" y1="365" x2="410" y2="365" marker-end="url(#a6)"/><text class="lbl" x="395" y="357" text-anchor="middle">ask</text>
+          <path class="ln" d="M200,265 H185 V460 H200" marker-end="url(#a6)"/><text class="lbl" x="180" y="380" text-anchor="end">load · persist</text>
+          <line class="ln" x1="380" y1="460" x2="410" y2="460" marker-end="url(#a6)"/>
+        </svg>
+        <figcaption><b>Same rows as the anatomy, in Go.</b> The broker sits above the wiring so the UI never imports <code>agent/</code>; <code>agent/</code> publishes straight into it. <code>tool/</code>, <code>provider/</code>, <code>session/</code> and <code>message/</code> each export one small interface; <code>store/</code> starts in memory behind the same interfaces. Adding a server later means one new package in front of <code>app/</code>, as crush did.</figcaption>
+      </figure>
+      <div class="cols">
+        <div>
+          <h3>Interfaces to write first</h3>
+          <pre><code><span class="k">type</span> Part <span class="k">interface</span>{ partType() }          <span class="c">// Text · Reasoning · ToolCall · ToolResult · File</span>
+<span class="k">type</span> Message <span class="k">struct</span>{ ID, SessionID, Role; Parts []Part }
+
+<span class="k">type</span> Tool <span class="k">interface</span> {
+    Info() ToolInfo                           <span class="c">// name, description, JSON schema</span>
+    Run(ctx context.Context, call ToolCall) (ToolResult, error)
+}
+
+<span class="k">type</span> Provider <span class="k">interface</span> {
+    Stream(ctx context.Context, req Request) (&lt;-<span class="k">chan</span> StreamEvent, error)
+}
+
+<span class="k">type</span> Broker[T any] <span class="k">interface</span> {
+    Publish(EventType, T)
+    Subscribe(ctx context.Context) &lt;-<span class="k">chan</span> Event[T]
+}
+
+<span class="k">type</span> Runner <span class="k">interface</span> {
+    Run(ctx context.Context, sessionID, prompt <span class="k">string</span>) (Outcome, error)
+    Cancel(sessionID <span class="k">string</span>)
+}</code></pre>
+        </div>
+        <div>
+          <h3>Borrowed from</h3>
+          <dl class="comp">
+            <dt>opencode</dt><dd>Message as typed parts; loop outcome <code>stop | continue | compact</code>; permission as rules</dd>
+            <dt>crush</dt><dd>Package layout; <code>Broker[T]</code>; small per-package service interfaces; <code>Tool{Info, Run}</code> with markdown descriptions; in-process first</dd>
+            <dt>ai-agent</dt><dd>Path jail on every tool; errors returned as strings; output truncation; iteration cap — and the fix: append every tool result</dd>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <footer>Companion markdown: <code>docs/inspiration-architectures.md</code>. Source clones under <code>analysis/</code>.</footer>
+  </main>
+</div>

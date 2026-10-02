@@ -1,0 +1,20 @@
+graph LR
+    subgraph Clients ["Outside of my MVP"]
+        TUI
+        CLI
+        Desktop
+    end
+
+    subgraph Server
+        AgentLoop["Agent Loop"]
+        Capabilities
+        Permissions
+    end
+
+    TUI -- "HTTP /SSE\nGet messages" --> Server
+    CLI --> Server
+    Desktop -- "HTTP /messages\nPost messages" --> Server
+
+    Server --> AgentLoop
+    Server --> Capabilities
+    Server --> Permissions
