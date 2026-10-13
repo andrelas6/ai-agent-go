@@ -50,13 +50,13 @@ func Parse(data []byte) (Metadata, error) {
 		}
 		seen[key] = true
 
-		allowColumnZero := key == "context_files"
+		isList := key == "context_files"
 		bodyEnd := index + 1
-		for bodyEnd < len(lines) && continuesKey(lines, bodyEnd, allowColumnZero) {
+		for bodyEnd < len(lines) && continuesKey(lines, bodyEnd, isList) {
 			bodyEnd++
 		}
 		body := lines[index+1 : bodyEnd]
-		inline = inlineValue(inline)
+		inline = strings.TrimSpace(inline)
 
 		var err error
 		switch key {
@@ -80,9 +80,9 @@ func Parse(data []byte) (Metadata, error) {
 
 func readContextFiles(inline string, body []string, keyLine int) ([]string, error) {
 	if strings.HasPrefix(inline, "[") {
-		return nil, fmt.Errorf("line %d: flow lists aren't supported, put each file on its own \"- path\" line", keyLine)
+		return nil, fmt.Errorf("line %d: put each file on its own \"- path\" line, lists like [a, b] aren't supported", keyLine)
 	}
-	if inline != "" {
+	if inline != "" && !strings.HasPrefix(inline, "#") {
 		return nil, fmt.Errorf("line %d: context_files takes its items on the lines below", keyLine)
 	}
 	var items []string
@@ -164,7 +164,7 @@ func stripComment(value string) string {
 
 func readUserPrompt(inline string, body []string, keyLine int) (string, error) {
 	if strings.HasPrefix(inline, ">") {
-		return "", fmt.Errorf("line %d: folded style (>) isn't supported, use | or a plain value", keyLine)
+		return "", fmt.Errorf("line %d: use | or a plain value, > isn't supported", keyLine)
 	}
 	if strings.HasPrefix(inline, "|") {
 		return readBlock(inline, body, keyLine)
@@ -189,7 +189,7 @@ func readUserPrompt(inline string, body []string, keyLine int) (string, error) {
 
 func readBlock(indicator string, body []string, keyLine int) (string, error) {
 	if rest := strings.TrimSpace(stripComment(indicator[1:])); rest != "" {
-		return "", fmt.Errorf("line %d: block indicator %q isn't supported, use a plain |", keyLine, rest)
+		return "", fmt.Errorf("line %d: use a plain |, %q after it isn't supported", keyLine, rest)
 	}
 	indent := -1
 	var lines []string
@@ -234,14 +234,6 @@ func checkPlainValue(value string, specialCharacters string, lineNumber int) err
 	return nil
 }
 
-func inlineValue(raw string) string {
-	value := strings.TrimSpace(raw)
-	if strings.HasPrefix(value, "#") {
-		return ""
-	}
-	return value
-}
-
 func isBlank(line string) bool {
 	return strings.TrimSpace(line) == ""
 }
@@ -255,12 +247,12 @@ func isIndented(line string) bool {
 	return strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
 }
 
-func continuesKey(lines []string, at int, allowColumnZero bool) bool {
+func continuesKey(lines []string, at int, isList bool) bool {
 	line := lines[at]
 	if isBlank(line) || isIndented(line) {
 		return true
 	}
-	if !allowColumnZero {
+	if !isList {
 		return false
 	}
 	if strings.HasPrefix(line, "-") {
@@ -271,7 +263,7 @@ func continuesKey(lines []string, at int, allowColumnZero bool) bool {
 	}
 	for next := at + 1; next < len(lines); next++ {
 		if !isBlankOrComment(lines[next]) {
-			return continuesKey(lines, next, allowColumnZero)
+			return continuesKey(lines, next, isList)
 		}
 	}
 	return false
