@@ -2,4 +2,6 @@ context_files:
   - testdata/claude_hooks.md
   - docs/openrouter-agent-loop.md
 
-user_prompt: Explain how Claude Code hooks work.
+user_prompt: |
+  Explain how Claude Code hooks work.
+  Keep it under 200 words.
