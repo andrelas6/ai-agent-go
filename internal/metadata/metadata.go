@@ -135,6 +135,12 @@ func contextFilePath(raw string, lineNumber int) (string, error) {
 			return "", fmt.Errorf("line %d: unexpected text after quoted path", lineNumber)
 		}
 	} else {
+		if raw == "-" || strings.HasPrefix(raw, "- ") || strings.HasPrefix(raw, "-\t") {
+			return "", fmt.Errorf("line %d: nested lists aren't supported", lineNumber)
+		}
+		if err := checkPlainValue(raw, pathSpecialCharacters, lineNumber); err != nil {
+			return "", err
+		}
 		path = strings.TrimSpace(stripComment(raw))
 	}
 	if path == "" {
@@ -161,7 +167,21 @@ func readUserPrompt(inline string, body []string, keyLine int) (string, error) {
 	if inline == "" {
 		return "", fmt.Errorf("line %d: user_prompt needs a value", keyLine)
 	}
+	if err := checkPlainValue(inline, promptSpecialCharacters, keyLine); err != nil {
+		return "", err
+	}
 	return inline, nil
+}
+
+const promptSpecialCharacters = "[{*&!%@`"
+
+const pathSpecialCharacters = promptSpecialCharacters + "|>?"
+
+func checkPlainValue(value string, specialCharacters string, lineNumber int) error {
+	if value != "" && strings.IndexByte(specialCharacters, value[0]) >= 0 {
+		return fmt.Errorf("line %d: a value can't start with %q, wrap it in quotes", lineNumber, value[:1])
+	}
+	return nil
 }
 
 func inlineValue(raw string) string {

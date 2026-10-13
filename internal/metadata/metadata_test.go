@@ -237,6 +237,21 @@ func TestParse(t *testing.T) {
 			input:   "context_files: [a, b]\nuser_prompt: hi\n",
 			wantErr: "line 1: flow lists aren't supported",
 		},
+		{
+			name:    "nested list item",
+			input:   "context_files:\n  - - a.md\nuser_prompt: hi\n",
+			wantErr: "line 2: nested lists aren't supported",
+		},
+		{
+			name:    "bare nested list marker",
+			input:   "context_files:\n  - -\nuser_prompt: hi\n",
+			wantErr: "line 2: nested lists aren't supported",
+		},
+		{
+			name:    "nested list marker followed by a tab",
+			input:   "context_files:\n  - -\ta.md\nuser_prompt: hi\n",
+			wantErr: "line 2: nested lists aren't supported",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -257,5 +272,45 @@ func TestParse(t *testing.T) {
 				t.Errorf("Parse() = %+v, want %+v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestParseRejectsPlainValueStartingWithSpecialCharacter(t *testing.T) {
+	for _, char := range promptSpecialCharacters {
+		value := string(char)
+		t.Run("prompt "+value, func(t *testing.T) {
+			input := "context_files:\n  - a.md\nuser_prompt: " + value + "x\n"
+			want := `line 3: a value can't start with "` + value + `", wrap it in quotes`
+			_, err := Parse([]byte(input))
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("Parse() error = %v, want it to contain %q", err, want)
+			}
+		})
+	}
+	for _, char := range pathSpecialCharacters {
+		value := string(char)
+		t.Run("path "+value, func(t *testing.T) {
+			input := "context_files:\n  - " + value + "x.md\nuser_prompt: hi\n"
+			want := `line 2: a value can't start with "` + value + `", wrap it in quotes`
+			_, err := Parse([]byte(input))
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("Parse() error = %v, want it to contain %q", err, want)
+			}
+		})
+	}
+}
+
+func TestParseAllowsQuotedValueStartingWithSpecialCharacter(t *testing.T) {
+	inputs := []string{
+		"context_files:\n  - \"[a].md\"\nuser_prompt: hi\n",
+		"context_files:\n  - '[a].md'\nuser_prompt: hi\n",
+		"context_files:\n  - a.md\nuser_prompt: \"[x]\"\n",
+		"context_files:\n  - a.md\nuser_prompt: '[x]'\n",
+		"context_files:\n  - \"- a.md\"\nuser_prompt: hi\n",
+	}
+	for _, input := range inputs {
+		if _, err := Parse([]byte(input)); err != nil {
+			t.Errorf("Parse(%q) error = %v, want nil", input, err)
+		}
 	}
 }
