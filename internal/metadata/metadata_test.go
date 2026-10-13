@@ -15,7 +15,7 @@ func TestLoadSample(t *testing.T) {
 	}
 	want := Metadata{
 		ContextFiles: []string{"testdata/claude_hooks.md", "docs/openrouter-agent-loop.md"},
-		UserPrompt:   "Explain how Claude Code hooks work.",
+		UserPrompt:   "Explain how Claude Code hooks work.\nKeep it under 200 words.\n",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Load() = %+v, want %+v", got, want)
@@ -185,12 +185,12 @@ func TestParse(t *testing.T) {
 		{
 			name:    "text after closing quote",
 			input:   "context_files:\n  - \"a.md\" x\nuser_prompt: hi\n",
-			wantErr: "line 2: unexpected text after quoted path",
+			wantErr: "line 2: unexpected text after quoted value",
 		},
 		{
 			name:    "text glued to closing quote",
 			input:   "context_files:\n  - \"a.md\"#x\nuser_prompt: hi\n",
-			wantErr: "line 2: unexpected text after quoted path",
+			wantErr: "line 2: unexpected text after quoted value",
 		},
 		{
 			name:    "empty item with trailing space",
@@ -251,6 +251,126 @@ func TestParse(t *testing.T) {
 			name:    "nested list marker followed by a tab",
 			input:   "context_files:\n  - -\ta.md\nuser_prompt: hi\n",
 			wantErr: "line 2: nested lists aren't supported",
+		},
+		{
+			name:  "block prompt with two lines",
+			input: "context_files:\n  - a.md\nuser_prompt: |\n  line one\n  line two\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "line one\nline two\n"},
+		},
+		{
+			name:  "block prompt strips indent and keeps extra spaces",
+			input: "context_files:\n  - a.md\nuser_prompt: |\n    first\n      deeper\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "first\n  deeper\n"},
+		},
+		{
+			name:    "block prompt line indented less than the first line",
+			input:   "context_files:\n  - a.md\nuser_prompt: |\n    first\n  short\n",
+			wantErr: "line 5: block line is indented less than the first line",
+		},
+		{
+			name:  "block prompt keeps leading and inner blank lines",
+			input: "context_files:\n  - a.md\nuser_prompt: |\n\n  one\n\n  two\n\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "\none\n\ntwo\n"},
+		},
+		{
+			name:  "block prompt keeps indented hash line as text",
+			input: "context_files:\n  - a.md\nuser_prompt: |\n  # Heading\n  body\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "# Heading\nbody\n"},
+		},
+		{
+			name:    "column zero hash ends block prompt",
+			input:   "context_files:\n  - a.md\nuser_prompt: |\n  one\n# note\n  two\n",
+			wantErr: "line 6: indented line outside a key",
+		},
+		{
+			name:  "block prompt ends at next top-level key",
+			input: "user_prompt: |\n  one\ncontext_files:\n  - a.md\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "one\n"},
+		},
+		{
+			name:  "block prompt with trailing comment on indicator line",
+			input: "context_files:\n  - a.md\nuser_prompt: | # note\n  hi\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "hi\n"},
+		},
+		{
+			name:    "folded prompt is not supported",
+			input:   "context_files:\n  - a.md\nuser_prompt: >\n  one\n",
+			wantErr: "line 3: folded style (>) isn't supported",
+		},
+		{
+			name:    "strip indicator is not supported",
+			input:   "context_files:\n  - a.md\nuser_prompt: |-\n  one\n",
+			wantErr: `line 3: block indicator "-" isn't supported`,
+		},
+		{
+			name:    "keep indicator is not supported",
+			input:   "context_files:\n  - a.md\nuser_prompt: |+\n  one\n",
+			wantErr: `line 3: block indicator "+" isn't supported`,
+		},
+		{
+			name:    "indent indicator is not supported",
+			input:   "context_files:\n  - a.md\nuser_prompt: |2\n    one\n",
+			wantErr: `line 3: block indicator "2" isn't supported`,
+		},
+		{
+			name:    "block prompt with no content",
+			input:   "context_files:\n  - a.md\nuser_prompt: |\n",
+			wantErr: "line 3: block under user_prompt is empty",
+		},
+		{
+			name:    "block prompt with only blank lines",
+			input:   "context_files:\n  - a.md\nuser_prompt: |\n\n   \n",
+			wantErr: "line 3: block under user_prompt is empty",
+		},
+		{
+			name:  "block prompt keeps extra spaces on a whitespace-only line",
+			input: "context_files:\n  - a.md\nuser_prompt: |\n    one\n      \n    two\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "one\n  \ntwo\n"},
+		},
+		{
+			name:    "tab before block line",
+			input:   "context_files:\n  - a.md\nuser_prompt: |\n\tone\n",
+			wantErr: "line 4: use spaces, not tabs",
+		},
+		{
+			name:    "escape in double quoted prompt",
+			input:   "context_files:\n  - a.md\nuser_prompt: \"a\\nb\"\n",
+			wantErr: "line 3: escapes in double quotes aren't supported",
+		},
+		{
+			name:    "escape in double quoted path",
+			input:   "context_files:\n  - \"a\\b.md\"\nuser_prompt: hi\n",
+			wantErr: "line 2: escapes in double quotes aren't supported",
+		},
+		{
+			name:  "backslash in single quoted path is literal",
+			input: "context_files:\n  - 'a\\b.md'\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{`a\b.md`}, UserPrompt: "hi"},
+		},
+		{
+			name:    "empty quoted prompt",
+			input:   "context_files:\n  - a.md\nuser_prompt: \"\"\n",
+			wantErr: "line 3: user_prompt needs a value",
+		},
+		{
+			name:  "double quoted prompt keeps colon",
+			input: "context_files:\n  - a.md\nuser_prompt: \"Explain: hooks\"\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "Explain: hooks"},
+		},
+		{
+			name:  "single quoted prompt with trailing comment",
+			input: "context_files:\n  - a.md\nuser_prompt: 'Explain hooks' # note\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "Explain hooks"},
+		},
+		{
+			name:  "plain prompt with trailing comment stripped",
+			input: "context_files:\n  - a.md\nuser_prompt: Explain hooks # note\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "Explain hooks"},
+		},
+		{
+			name:    "unclosed quote in prompt",
+			input:   "context_files:\n  - a.md\nuser_prompt: \"Explain hooks\n",
+			wantErr: "line 3: unclosed quote",
 		},
 	}
 	for _, test := range tests {
