@@ -1,0 +1,5 @@
+context_files:
+  - testdata/claude_hooks.md
+  - docs/openrouter-agent-loop.md
+
+user_prompt: Explain how Claude Code hooks work.
