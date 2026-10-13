@@ -132,6 +132,111 @@ func TestParse(t *testing.T) {
 			input:   "context_files:\n  - a.md\nuser_prompt:\n",
 			wantErr: "line 3:",
 		},
+		{
+			name:  "items at column zero",
+			input: "context_files:\n- a.md\n- b.md\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{"a.md", "b.md"}, UserPrompt: "hi"},
+		},
+		{
+			name:  "items indented four spaces",
+			input: "context_files:\n    - a.md\n    - b.md\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{"a.md", "b.md"}, UserPrompt: "hi"},
+		},
+		{
+			name:    "mixed item indents",
+			input:   "context_files:\n  - a.md\n    - b.md\nuser_prompt: hi\n",
+			wantErr: "line 3: items must use the same indent",
+		},
+		{
+			name:  "trailing comment stripped",
+			input: "context_files:\n  - a.md # note\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "hi"},
+		},
+		{
+			name:  "hash without a space is part of the path",
+			input: "context_files:\n  - a#b.md\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{"a#b.md"}, UserPrompt: "hi"},
+		},
+		{
+			name:  "double quoted path with space",
+			input: "context_files:\n  - \"a b.md\"\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{"a b.md"}, UserPrompt: "hi"},
+		},
+		{
+			name:  "single quoted path",
+			input: "context_files:\n  - 'a.md'\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "hi"},
+		},
+		{
+			name:  "quoted path with trailing comment",
+			input: "context_files:\n  - \"a b.md\" # note\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{"a b.md"}, UserPrompt: "hi"},
+		},
+		{
+			name:    "unclosed double quote",
+			input:   "context_files:\n  - \"a.md\nuser_prompt: hi\n",
+			wantErr: "line 2: unclosed quote",
+		},
+		{
+			name:    "unclosed single quote",
+			input:   "context_files:\n  - 'a.md\nuser_prompt: hi\n",
+			wantErr: "line 2: unclosed quote",
+		},
+		{
+			name:    "text after closing quote",
+			input:   "context_files:\n  - \"a.md\" x\nuser_prompt: hi\n",
+			wantErr: "line 2: unexpected text after quoted path",
+		},
+		{
+			name:    "text glued to closing quote",
+			input:   "context_files:\n  - \"a.md\"#x\nuser_prompt: hi\n",
+			wantErr: "line 2: unexpected text after quoted path",
+		},
+		{
+			name:    "empty item with trailing space",
+			input:   "context_files:\n  - \nuser_prompt: hi\n",
+			wantErr: "line 2: list item needs a path",
+		},
+		{
+			name:    "empty item with only a dash",
+			input:   "context_files:\n  -\nuser_prompt: hi\n",
+			wantErr: "line 2: list item needs a path",
+		},
+		{
+			name:    "item that is only a comment",
+			input:   "context_files:\n  - # note\nuser_prompt: hi\n",
+			wantErr: "line 2: list item needs a path",
+		},
+		{
+			name:    "tab before dash",
+			input:   "context_files:\n\t- a.md\nuser_prompt: hi\n",
+			wantErr: "line 2: use spaces, not tabs",
+		},
+		{
+			name:    "tab after dash",
+			input:   "context_files:\n  -\ta.md\nuser_prompt: hi\n",
+			wantErr: "line 2: use spaces, not tabs",
+		},
+		{
+			name:  "column zero comment between items",
+			input: "context_files:\n  - a.md\n# note\n  - b.md\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{"a.md", "b.md"}, UserPrompt: "hi"},
+		},
+		{
+			name:    "duplicate path reports second line",
+			input:   "context_files:\n  - a.md\n  - b.md\n  - a.md\nuser_prompt: hi\n",
+			wantErr: `line 4: duplicate context file "a.md"`,
+		},
+		{
+			name:    "no items",
+			input:   "context_files:\nuser_prompt: hi\n",
+			wantErr: "line 1: context_files needs at least one item",
+		},
+		{
+			name:    "flow list",
+			input:   "context_files: [a, b]\nuser_prompt: hi\n",
+			wantErr: "line 1: flow lists aren't supported",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
