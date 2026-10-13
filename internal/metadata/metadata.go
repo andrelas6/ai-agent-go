@@ -24,7 +24,8 @@ func Load(path string) (Metadata, error) {
 }
 
 func Parse(data []byte) (Metadata, error) {
-	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	text := strings.TrimPrefix(string(data), "\uFEFF")
+	text = strings.ReplaceAll(text, "\r\n", "\n")
 	lines := strings.Split(text, "\n")
 	var meta Metadata
 	seen := map[string]bool{}
@@ -193,12 +194,15 @@ func readBlock(indicator string, body []string, keyLine int) (string, error) {
 	indent := -1
 	var lines []string
 	for offset, line := range body {
-		if isBlank(line) && (indent < 0 || len(line) <= indent) {
+		lineNumber := keyLine + 1 + offset
+		spaces := len(line) - len(strings.TrimLeft(line, " "))
+		if isBlank(line) && (indent < 0 || spaces < indent || len(line) <= indent) {
+			if spaces < len(line) && line[spaces] == '\t' {
+				return "", fmt.Errorf("line %d: use spaces, not tabs", lineNumber)
+			}
 			lines = append(lines, "")
 			continue
 		}
-		lineNumber := keyLine + 1 + offset
-		spaces := len(line) - len(strings.TrimLeft(line, " "))
 		if spaces == 0 {
 			return "", fmt.Errorf("line %d: use spaces, not tabs", lineNumber)
 		}
@@ -206,10 +210,6 @@ func readBlock(indicator string, body []string, keyLine int) (string, error) {
 			indent = spaces
 		}
 		if spaces < indent {
-			if isBlank(line) {
-				lines = append(lines, "")
-				continue
-			}
 			return "", fmt.Errorf("line %d: block line is indented less than the first line", lineNumber)
 		}
 		lines = append(lines, line[indent:])

@@ -372,6 +372,36 @@ func TestParse(t *testing.T) {
 			input:   "context_files:\n  - a.md\nuser_prompt: \"Explain hooks\n",
 			wantErr: "line 3: unclosed quote",
 		},
+		{
+			name:    "tab in blank block line after content",
+			input:   "context_files:\n  - a.md\nuser_prompt: |\n  one\n\t\n  two\n",
+			wantErr: "line 5: use spaces, not tabs",
+		},
+		{
+			name:    "tab in blank block line before content",
+			input:   "context_files:\n  - a.md\nuser_prompt: |\n\t\n  one\n",
+			wantErr: "line 4: use spaces, not tabs",
+		},
+		{
+			name:    "tab in indent of blank block line",
+			input:   "context_files:\n  - a.md\nuser_prompt: |\n    one\n  \t\n    two\n",
+			wantErr: "line 5: use spaces, not tabs",
+		},
+		{
+			name:  "tab after the indent of a blank block line is kept",
+			input: "context_files:\n  - a.md\nuser_prompt: |\n  one\n  \t\n  two\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "one\n\t\ntwo\n"},
+		},
+		{
+			name:  "byte order mark before context_files",
+			input: "\uFEFFcontext_files:\n  - a.md\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "hi"},
+		},
+		{
+			name:    "byte order mark before unknown key",
+			input:   "\uFEFFmodel: x\ncontext_files:\n  - a.md\nuser_prompt: hi\n",
+			wantErr: `line 1: unknown key "model"`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
