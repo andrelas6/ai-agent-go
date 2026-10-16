@@ -27,6 +27,8 @@ func main() {
 
 	messagesService := messages.NewService()
 
+	registerAPIRoutes(mux)
+
 	mux.HandleFunc("GET /health", func(resWriter http.ResponseWriter, request *http.Request) {
 		resWriter.Write([]byte("ok"))
 	})
