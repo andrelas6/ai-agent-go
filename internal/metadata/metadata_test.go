@@ -233,9 +233,34 @@ func TestParse(t *testing.T) {
 			wantErr: "line 1: context_files needs at least one item",
 		},
 		{
+			name:  "context_files key with comment only takes items below",
+			input: "context_files: # note\n  - a.md\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "hi"},
+		},
+		{
+			name:    "user_prompt key with comment only needs a value",
+			input:   "context_files:\n  - a.md\nuser_prompt: # note\n",
+			wantErr: "line 3: user_prompt needs a value",
+		},
+		{
+			name:    "user_prompt comment that starts like a list",
+			input:   "context_files:\n  - a.md\nuser_prompt: #[x\n",
+			wantErr: "line 3: user_prompt needs a value",
+		},
+		{
+			name:    "user_prompt comment after a tab",
+			input:   "context_files:\n  - a.md\nuser_prompt: \t# x\n",
+			wantErr: "line 3: user_prompt needs a value",
+		},
+		{
+			name:  "context_files comment with no space after the colon",
+			input: "context_files:#x\n  - a.md\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "hi"},
+		},
+		{
 			name:    "flow list",
 			input:   "context_files: [a, b]\nuser_prompt: hi\n",
-			wantErr: "line 1: flow lists aren't supported",
+			wantErr: "line 1: put each file on its own \"- path\" line, lists like [a, b] aren't supported",
 		},
 		{
 			name:    "nested list item",
@@ -295,22 +320,22 @@ func TestParse(t *testing.T) {
 		{
 			name:    "folded prompt is not supported",
 			input:   "context_files:\n  - a.md\nuser_prompt: >\n  one\n",
-			wantErr: "line 3: folded style (>) isn't supported",
+			wantErr: "line 3: use | or a plain value, > isn't supported",
 		},
 		{
 			name:    "strip indicator is not supported",
 			input:   "context_files:\n  - a.md\nuser_prompt: |-\n  one\n",
-			wantErr: `line 3: block indicator "-" isn't supported`,
+			wantErr: `line 3: use a plain |, "-" after it isn't supported`,
 		},
 		{
 			name:    "keep indicator is not supported",
 			input:   "context_files:\n  - a.md\nuser_prompt: |+\n  one\n",
-			wantErr: `line 3: block indicator "+" isn't supported`,
+			wantErr: `line 3: use a plain |, "+" after it isn't supported`,
 		},
 		{
 			name:    "indent indicator is not supported",
 			input:   "context_files:\n  - a.md\nuser_prompt: |2\n    one\n",
-			wantErr: `line 3: block indicator "2" isn't supported`,
+			wantErr: `line 3: use a plain |, "2" after it isn't supported`,
 		},
 		{
 			name:    "block prompt with no content",
@@ -371,6 +396,36 @@ func TestParse(t *testing.T) {
 			name:    "unclosed quote in prompt",
 			input:   "context_files:\n  - a.md\nuser_prompt: \"Explain hooks\n",
 			wantErr: "line 3: unclosed quote",
+		},
+		{
+			name:    "tab in blank block line after content",
+			input:   "context_files:\n  - a.md\nuser_prompt: |\n  one\n\t\n  two\n",
+			wantErr: "line 5: use spaces, not tabs",
+		},
+		{
+			name:    "tab in blank block line before content",
+			input:   "context_files:\n  - a.md\nuser_prompt: |\n\t\n  one\n",
+			wantErr: "line 4: use spaces, not tabs",
+		},
+		{
+			name:    "tab in indent of blank block line",
+			input:   "context_files:\n  - a.md\nuser_prompt: |\n    one\n  \t\n    two\n",
+			wantErr: "line 5: use spaces, not tabs",
+		},
+		{
+			name:  "tab after the indent of a blank block line is kept",
+			input: "context_files:\n  - a.md\nuser_prompt: |\n  one\n  \t\n  two\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "one\n\t\ntwo\n"},
+		},
+		{
+			name:  "byte order mark before context_files",
+			input: "\uFEFFcontext_files:\n  - a.md\nuser_prompt: hi\n",
+			want:  Metadata{ContextFiles: []string{"a.md"}, UserPrompt: "hi"},
+		},
+		{
+			name:    "byte order mark before unknown key",
+			input:   "\uFEFFmodel: x\ncontext_files:\n  - a.md\nuser_prompt: hi\n",
+			wantErr: `line 1: unknown key "model"`,
 		},
 	}
 	for _, test := range tests {
