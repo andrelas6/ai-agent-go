@@ -1,6 +1,8 @@
 package main
 
 import (
+	"andrelas6/ai-agent-go/cmd/agent-server/handlers"
+	"andrelas6/ai-agent-go/internal/bus"
 	"andrelas6/ai-agent-go/internal/messages"
 	"context"
 	"encoding/json"
@@ -21,13 +23,16 @@ type Dependencies struct {
 }
 
 func main() {
-	mux := http.NewServeMux()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	messagesService := messages.NewService()
+	var runner handlers.Runner
 
-	registerAPIRoutes(mux)
+	runner = func() {}
+
+	mux := handlers.NewMux(ctx, bus.New(), runner)
+
+	messagesService := messages.NewService()
 
 	mux.HandleFunc("GET /health", func(resWriter http.ResponseWriter, request *http.Request) {
 		resWriter.Write([]byte("ok"))

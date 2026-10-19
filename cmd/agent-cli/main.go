@@ -120,7 +120,7 @@ func (c *ClientModel) chatOpenRouter(ctx context.Context, conversation []compone
 	if res != nil {
 		pretty, err := json.MarshalIndent(res.ChatResult.Choices, "", " ")
 		if err != nil {
-			fmt.Errorf("issue marshalling %w", pretty)
+			fmt.Errorf("issue marshalling %w", err)
 			return ChatOpenRouterResponse{
 				Err:          true,
 				Message:      "",
