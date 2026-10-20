@@ -21,7 +21,7 @@ func TestGetStreamingEvents(t *testing.T) {
 	// ----- Setup ------ //
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	server := httptest.NewServer(newTestMux(ctx, newStubRunner(), bus.New()))
+	server := httptest.NewServer(newTestMux(ctx, newStubRunner(), bus.New(ctx)))
 	defer server.Close()
 	// ----- Setup ------ //
 

@@ -3,7 +3,6 @@ package main
 import (
 	"andrelas6/ai-agent-go/cmd/agent-server/handlers"
 	"andrelas6/ai-agent-go/internal/bus"
-	"andrelas6/ai-agent-go/internal/messages"
 	"context"
 	"fmt"
 	"log"
@@ -17,10 +16,6 @@ type ChatRequest struct {
 	Message string `json:"message"`
 }
 
-type Dependencies struct {
-	MessagesService *messages.Service
-}
-
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -31,7 +26,7 @@ func main() {
 		fmt.Println("RUNNING")
 	}
 
-	mux := handlers.NewMux(ctx, bus.New(), runner)
+	mux := handlers.NewMux(ctx, bus.New(ctx), runner)
 
 	server := &http.Server{
 		Addr:              ":8002",
