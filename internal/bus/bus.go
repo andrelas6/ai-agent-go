@@ -17,6 +17,7 @@ func (e *Bus) Clear() {
 }
 
 func (e *Bus) Publish(event events.Event) {
+	e.history = append(e.history, event)
 	for _, stream := range e.eventStreams {
 		stream <- event
 	}

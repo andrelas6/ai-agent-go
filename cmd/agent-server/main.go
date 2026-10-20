@@ -33,10 +33,6 @@ func main() {
 
 	mux := handlers.NewMux(ctx, bus.New(), runner)
 
-	mux.HandleFunc("GET /health", func(resWriter http.ResponseWriter, request *http.Request) {
-		resWriter.Write([]byte("ok"))
-	})
-
 	server := &http.Server{
 		Addr:              ":8002",
 		Handler:           mux,

@@ -24,15 +24,18 @@ func NewMux(ctx context.Context, bus EventBus, run Runner) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /api/tasks", handlePostTasks(bus))
-	mux.HandleFunc("POST /api/clear", handlePostClear())
+	mux.HandleFunc("POST /api/clear", handlePostClear(bus))
 	mux.HandleFunc("GET /api/events", handleGetStreamingEvents(ctx, bus))
+	mux.HandleFunc("GET /health", func(resWriter http.ResponseWriter, request *http.Request) {
+		resWriter.Write([]byte("ok"))
+	})
 
 	return mux
 }
 
 func handleGetStreamingEvents(ctx context.Context, bus EventBus) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, eventStream, unsubscribe := bus.Subscribe()
+		history, eventStream, unsubscribe := bus.Subscribe()
 		defer unsubscribe()
 
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -44,7 +47,10 @@ func handleGetStreamingEvents(ctx context.Context, bus EventBus) func(w http.Res
 		// send response to client before first message - that tells clients are connected properly
 		rc.Flush()
 
-		// flush history
+		// flush history first
+		for _, event := range history {
+			flushEventData(w, event, rc)
+		}
 
 		for {
 			select {
@@ -56,26 +62,33 @@ func handleGetStreamingEvents(ctx context.Context, bus EventBus) func(w http.Res
 				rc.Flush()
 				return
 			case event := <-eventStream:
-				data, err := json.Marshal(event)
-				// TODO: improve this error handling
-				if err != nil {
-					// no op for now
-					fmt.Printf("error marshaling %v", err)
-				} else {
-					fmt.Fprintf(w, "id: %s\n", event.ID)
-					fmt.Fprintf(w, "data: %s\n", data)
-					fmt.Fprintf(w, "\n")
-					rc.Flush()
-				}
+				flushEventData(w, event, rc)
 			}
 		}
 	}
 }
 
+func flushEventData(w http.ResponseWriter, event events.Event, rc *http.ResponseController) error {
+	data, err := json.Marshal(event)
+	// TODO: improve this error handling
+	if err != nil {
+		// no op for now
+		fmt.Printf("error marshaling %v", err)
+		return err
+	}
+
+	fmt.Fprintf(w, "id: %s\n", event.ID)
+	fmt.Fprintf(w, "data: %s\n", data)
+	fmt.Fprintf(w, "\n")
+	rc.Flush()
+	return nil
+}
+
 func handlePostTasks(b EventBus) func(w http.ResponseWriter, r *http.Request) {
 	var reqBody struct {
 		Input string `json:"input"`
-		Mode  string `json:"mode"`
+		// QUESTION: What's the purpose of mode?
+		Mode string `json:"mode"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
@@ -124,8 +137,9 @@ func handlePostTasks(b EventBus) func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handlePostClear() func(w http.ResponseWriter, r *http.Request) {
+func handlePostClear(bus EventBus) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		bus.Clear()
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	}
 }
