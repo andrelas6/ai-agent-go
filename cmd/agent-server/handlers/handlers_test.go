@@ -5,7 +5,9 @@ import (
 	"andrelas6/ai-agent-go/internal/bus"
 	"andrelas6/ai-agent-go/internal/events"
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,37 +18,110 @@ import (
 
 // calling gets an open connection, then posting message receives a dumb text message
 func TestGetStreamingEvents(t *testing.T) {
+	// ----- Setup ------ //
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	server := httptest.NewServer(newTestMux(ctx, newStubRunner(), bus.New()))
 	defer server.Close()
+	// ----- Setup ------ //
 
+	// ----- FIRST SSE GET ---- //
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/events", nil)
 
 	if err != nil {
 		t.Fatalf("new request with context %v", err)
 	}
 
-	res, err := http.DefaultClient.Do(req)
+	getResponse, err := http.DefaultClient.Do(req)
 
 	if err != nil {
 		t.Fatalf("GET /api/events %v", err)
 	}
 
-	defer res.Body.Close()
+	defer getResponse.Body.Close()
 
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected %v. got %v", http.StatusOK, res.StatusCode)
+	if getResponse.StatusCode != http.StatusOK {
+		t.Fatalf("expected %v. got %v", http.StatusOK, getResponse.StatusCode)
 	}
 
-	id, data := readSSEMessage(t, bufio.NewReader(res.Body))
+	if got := getResponse.Header.Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("expected text/event-stream. got %v", got)
+	}
+	if got := getResponse.Header.Get("Cache-Control"); got != "no-cache" {
+		t.Fatalf("expected no-cache. got %v", got)
+	}
+
+	if got := getResponse.Header.Get("Connection"); got != "keep-alive" {
+		t.Fatalf("expected keep-alive. got %v", got)
+	}
+	// ----- FIRST SSE GET ---- //
+
+	// ----- POST MESSAGE ---- //
+	data := struct {
+		Input string `json:"input"`
+		Mode  string `json:"mode"`
+	}{
+		Input: "test input",
+		Mode:  "test mode",
+	}
+	body, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal("error enconding body")
+	}
+	req, err = http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/api/tasks", bytes.NewReader(body))
+
+	req.Header.Set("Content-Type", "application/json")
+
+	postResponse, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("http post %v", err)
+	}
+
+	if postResponse.StatusCode != http.StatusAccepted {
+		t.Errorf("status = %d, want %d", postResponse.StatusCode, http.StatusAccepted)
+	}
+	if got := postResponse.Header.Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", got, "application/json")
+	}
+
+	var got struct {
+		WorkflowId string `json:"workflowId"`
+	}
+	if err := json.NewDecoder(postResponse.Body).Decode(&got); err != nil {
+		t.Errorf("error decoding %v", err)
+	}
+
+	if got.WorkflowId == "" {
+		t.Error("workflow id is empty", err)
+	}
+
+	// ----- POST MESSAGE ---- //
+
+	// ----- SECOND SSE GET ---- //
+	var eventData struct {
+		Type       string `json:"type"`
+		WorkflowId string `json:"workflowId"`
+	}
+
+	id, sseDataMessage := readSSEMessage(t, bufio.NewReader(getResponse.Body))
 
 	if id == "" {
-		t.Fatalf("expected non blank value")
+		t.Fatal("id is blank")
 	}
 
-	if data == "" {
-		t.Fatalf("expected non blank value")
+	err = json.Unmarshal([]byte(sseDataMessage), &eventData)
+
+	if err != nil {
+		// QUESTION: why %q here?
+		t.Fatalf("unmarshal %q: %v", sseDataMessage, err)
+	}
+
+	if eventData.Type != string(events.WorkflowStarted) {
+		t.Fatalf("got %v. expected %v", eventData.Type, events.WorkflowStarted)
+	}
+
+	if eventData.WorkflowId != got.WorkflowId {
+		t.Fatalf("got %v. expected %v", eventData.WorkflowId, got.WorkflowId)
 	}
 }
 
@@ -56,27 +131,6 @@ func newStubRunner() handlers.Runner {
 
 type StubEventBus struct {
 	eventStream chan events.Event
-}
-
-func TestPostTasksReturnsDummyWorkflowID(t *testing.T) {
-	server := httptest.NewServer(newTestMux(t.Context(), newStubRunner(), bus.New()))
-	defer server.Close()
-
-	res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(`{"input":"hi","mode":"default"}`))
-	if err != nil {
-		t.Fatalf("POST /api/tasks: %v", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusAccepted {
-		t.Errorf("status = %d, want %d", res.StatusCode, http.StatusAccepted)
-	}
-	if got := res.Header.Get("Content-Type"); got != "application/json" {
-		t.Errorf("Content-Type = %q, want %q", got, "application/json")
-	}
-	if got, want := readBody(t, res), `{"workflowId":"dummy-workflow-id"}`; got != want {
-		t.Errorf("body = %s, want %s", got, want)
-	}
 }
 
 func TestPostClearReturnsOK(t *testing.T) {

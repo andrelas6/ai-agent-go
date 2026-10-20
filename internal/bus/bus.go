@@ -1,33 +1,43 @@
 package bus
 
-import "andrelas6/ai-agent-go/internal/events"
+import (
+	"andrelas6/ai-agent-go/internal/events"
 
+	"github.com/google/uuid"
+)
+
+type connectionId string
 type Bus struct {
-	eventStream chan events.Event
+	history      []events.Event
+	eventStreams map[connectionId]chan events.Event
 }
 
-// Clear implements [eventBus].
 func (e *Bus) Clear() {
-	panic("unimplemented")
+	e.history = make([]events.Event, 0)
 }
 
-// Publish implements [eventBus].
 func (e *Bus) Publish(event events.Event) {
-	e.eventStream <- event
-}
-
-// Subscribe implements [eventBus].
-func (e *Bus) Subscribe() (readStream <-chan events.Event, unsubscribe func()) {
-	readStream = e.eventStream
-	return readStream, func() {
-		close(e.eventStream)
+	for _, stream := range e.eventStreams {
+		stream <- event
 	}
 }
 
+func (e *Bus) Subscribe() (history []events.Event, readStream <-chan events.Event, unsubscribe func()) {
+	eventStream := make(chan events.Event, 256)
+	channelId := connectionId(uuid.NewString())
+	e.eventStreams[channelId] = eventStream
+	return e.history,
+		eventStream, func() {
+			close(eventStream)
+			delete(e.eventStreams, channelId)
+		}
+}
+
 func New() *Bus {
-	stream := make(chan events.Event, 256)
+	streams := make(map[connectionId]chan events.Event)
 
 	return &Bus{
-		eventStream: stream,
+		history:      make([]events.Event, 0),
+		eventStreams: streams,
 	}
 }
