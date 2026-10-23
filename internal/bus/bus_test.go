@@ -4,6 +4,9 @@ import (
 	"andrelas6/ai-agent-go/internal/bus"
 	"andrelas6/ai-agent-go/internal/events"
 	"context"
+	"fmt"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 )
@@ -79,28 +82,144 @@ func TestTwoSubscribersSameBusGetsSameEvents(t *testing.T) {
 		events2 = append(events2, e2)
 	}
 
-	for i := range len(events1) {
-		if events1[i].Type != events2[i].Type {
-			t.Fatal("events are not the same")
-		}
+	want := []events.Type{events.WorkflowStarted, events.WorkflowCompleted}
+	if got := eventTypes(events1); !slices.Equal(got, want) {
+		t.Errorf("subscriber 1 got %v, want %v", got, want)
+	}
+	if got := eventTypes(events2); !slices.Equal(got, want) {
+		t.Errorf("subscriber 2 got %v, want %v", got, want)
 	}
 }
 
-func TestSubscribeReturnsEarlierEventsAsHistory(t *testing.T) {
+func TestLiveEventsArriveInPublishOrder(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	b := bus.New(ctx)
 
-	b.Publish(events.Event{ID: "event-1", Type: events.WorkflowStarted})
-	b.Publish(events.Event{ID: "event-2", Type: events.Log})
-
-	history, _, unsubscribe := b.Subscribe()
+	_, live, unsubscribe := b.Subscribe()
 	defer unsubscribe()
 
-	if len(history) != 2 {
-		t.Fatalf("history has %d events, want 2: %+v", len(history), history)
+	want := []string{"event-1", "event-2", "event-3"}
+	for _, id := range want {
+		b.Publish(events.Event{ID: id})
 	}
-	if history[0].ID != "event-1" || history[1].ID != "event-2" {
-		t.Errorf("history ids = [%s %s], want [event-1 event-2]", history[0].ID, history[1].ID)
+
+	got := make([]string, 0, len(want))
+	for range want {
+		select {
+		case e := <-live:
+			got = append(got, e.ID)
+		case <-ctx.Done():
+			t.Fatalf("got %v before timeout, want %v", got, want)
+		}
 	}
+	if !slices.Equal(got, want) {
+		t.Errorf("live = %v, want %v", got, want)
+	}
+}
+
+func TestEachSubscriberGetsHistoryAsOfItsSubscribe(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+
+	b.Publish(events.Event{ID: "event-1"})
+	historyA, _, unsubscribeA := b.Subscribe()
+	defer unsubscribeA()
+
+	b.Publish(events.Event{ID: "event-2"})
+	historyB, _, unsubscribeB := b.Subscribe()
+	defer unsubscribeB()
+
+	b.Publish(events.Event{ID: "event-3"})
+	historyC, _, unsubscribeC := b.Subscribe()
+	defer unsubscribeC()
+
+	cases := []struct {
+		name    string
+		history []events.Event
+		want    []string
+	}{
+		{"A", historyA, []string{"event-1"}},
+		{"B", historyB, []string{"event-1", "event-2"}},
+		{"C", historyC, []string{"event-1", "event-2", "event-3"}},
+	}
+	for _, c := range cases {
+		if got := eventIDs(c.history); !slices.Equal(got, c.want) {
+			t.Errorf("subscriber %s history = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestSubscribeWhilePublishing(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			b.Publish(events.Event{Type: events.Log})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			_, _, unsubscribe := b.Subscribe()
+			unsubscribe()
+		}
+	}()
+	wg.Wait()
+}
+
+func TestHistoryAndLiveHoldEachEventOnce(t *testing.T) {
+	want := make([]string, 0, 20)
+	for i := range 20 {
+		want = append(want, fmt.Sprintf("event-%d", i))
+	}
+
+	for range 200 {
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		b := bus.New(ctx)
+
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, id := range want {
+				b.Publish(events.Event{ID: id})
+			}
+		}()
+		history, live, unsubscribe := b.Subscribe()
+		wg.Wait()
+		unsubscribe()
+
+		got := eventIDs(history)
+		for e := range live {
+			got = append(got, e.ID)
+		}
+		cancel()
+
+		if !slices.Equal(got, want) {
+			t.Fatalf("history (%d events) + live = %v, want %v", len(history), got, want)
+		}
+	}
+}
+
+func eventTypes(list []events.Event) []events.Type {
+	types := make([]events.Type, 0, len(list))
+	for _, e := range list {
+		types = append(types, e.Type)
+	}
+	return types
+}
+
+func eventIDs(history []events.Event) []string {
+	ids := make([]string, 0, len(history))
+	for _, e := range history {
+		ids = append(ids, e.ID)
+	}
+	return ids
 }

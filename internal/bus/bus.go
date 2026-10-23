@@ -3,23 +3,26 @@ package bus
 import (
 	"andrelas6/ai-agent-go/internal/events"
 	"context"
+	"slices"
 
 	"github.com/google/uuid"
 )
 
-type subscriberStream struct {
+type subscription struct {
 	id          string
 	eventStream chan events.Event
+	// to avoid data races in the history slice, the writing/reading of the history slice must be done in the same select
+	// the reply channel is there just to make sure that works
+	reply chan []events.Event
 }
 
 type Bus struct {
-	history       []events.Event
-	eventStreams  map[string]chan events.Event
-	publishCh     chan events.Event
-	subscribeCh   chan subscriberStream
-	unsubscribeCh chan string
-	clearCh       chan struct{}
-	done          <-chan struct{}
+	eventStreams       map[string]chan events.Event
+	publishCh          chan events.Event
+	subscriptionStream chan subscription
+	unsubscribeCh      chan string
+	clearCh            chan struct{}
+	done               <-chan struct{}
 }
 
 func (e *Bus) Clear() {
@@ -37,13 +40,16 @@ func (e *Bus) Publish(event events.Event) {
 
 func (e *Bus) Subscribe() (history []events.Event, readStream <-chan events.Event, unsubscribe func()) {
 	eventStream := make(chan events.Event, 256)
+	// throaway reply channel just to get the history back without data races (publish/subscribe concurrently)
+	replyCh := make(chan []events.Event, 1)
+
 	channelId := uuid.NewString()
 	// order is also important, because a publisher after a subscribe should work for that subscribe (causal consistency)
 	select {
 	case <-e.done:
-		return e.history, nil, func() {}
-	case e.subscribeCh <- subscriberStream{id: string(channelId), eventStream: eventStream}:
-		return e.history,
+		return nil, nil, func() {}
+	case e.subscriptionStream <- subscription{id: channelId, eventStream: eventStream, reply: replyCh}:
+		return <-replyCh,
 			eventStream, func() {
 				select {
 				case <-e.done:
@@ -56,9 +62,9 @@ func (e *Bus) Subscribe() (history []events.Event, readStream <-chan events.Even
 func New(ctx context.Context) *Bus {
 	streams := make(map[string]chan events.Event)
 
-	publishCh := make(chan events.Event)
-	subscribeCh := make(chan subscriberStream)
 	history := make([]events.Event, 0)
+	publishCh := make(chan events.Event)
+	subscriptionCh := make(chan subscription)
 	unsubscribeCh := make(chan string)
 	clearCh := make(chan struct{})
 	go func() {
@@ -75,8 +81,9 @@ func New(ctx context.Context) *Bus {
 				for _, eventStream := range streams {
 					eventStream <- event
 				}
-			case register := <-subscribeCh:
-				streams[register.id] = register.eventStream
+			case subscription := <-subscriptionCh:
+				streams[subscription.id] = subscription.eventStream
+				subscription.reply <- slices.Clone(history)
 			case <-clearCh:
 				history = make([]events.Event, 0)
 			case <-ctx.Done():
@@ -86,12 +93,11 @@ func New(ctx context.Context) *Bus {
 	}()
 
 	return &Bus{
-		history:       history,
-		eventStreams:  streams,
-		publishCh:     publishCh,
-		subscribeCh:   subscribeCh,
-		unsubscribeCh: unsubscribeCh,
-		clearCh:       clearCh,
-		done:          ctx.Done(),
+		eventStreams:       streams,
+		publishCh:          publishCh,
+		subscriptionStream: subscriptionCh,
+		unsubscribeCh:      unsubscribeCh,
+		clearCh:            clearCh,
+		done:               ctx.Done(),
 	}
 }
