@@ -129,12 +129,8 @@ func newStubRunner() handlers.Runner {
 	return func() {}
 }
 
-type StubEventBus struct {
-	eventStream chan events.Event
-}
-
 func TestPostClearReturnsOK(t *testing.T) {
-	server := httptest.NewServer(newTestMux(t.Context(), newStubRunner(), bus.New()))
+	server := httptest.NewServer(newTestMux(t.Context(), newStubRunner(), bus.New(t.Context())))
 	defer server.Close()
 
 	res, err := http.Post(server.URL+"/api/clear", "application/json", nil)
@@ -155,7 +151,7 @@ func TestPostClearReturnsOK(t *testing.T) {
 }
 
 func TestGetTasksIsNotAllowed(t *testing.T) {
-	server := httptest.NewServer(newTestMux(t.Context(), newStubRunner(), bus.New()))
+	server := httptest.NewServer(newTestMux(t.Context(), newStubRunner(), bus.New(t.Context())))
 	defer server.Close()
 
 	res, err := http.Get(server.URL + "/api/tasks")
@@ -166,6 +162,79 @@ func TestGetTasksIsNotAllowed(t *testing.T) {
 
 	if res.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want %d", res.StatusCode, http.StatusMethodNotAllowed)
+	}
+}
+
+type fakeBus struct {
+	history      []events.Event
+	live         chan events.Event
+	unsubscribed chan struct{}
+}
+
+var _ handlers.EventBus = (*fakeBus)(nil)
+
+func newFakeBus() *fakeBus {
+	return &fakeBus{
+		live:         make(chan events.Event),
+		unsubscribed: make(chan struct{}),
+	}
+}
+
+func (f *fakeBus) Subscribe() ([]events.Event, <-chan events.Event, func()) {
+	return f.history, f.live, func() { close(f.unsubscribed) }
+}
+
+func (f *fakeBus) Publish(events.Event) {}
+
+func (f *fakeBus) Clear() {}
+
+func TestEventsUnsubscribesWhenClientDisconnects(t *testing.T) {
+	fake := newFakeBus()
+	server := httptest.NewServer(handlers.NewMux(t.Context(), fake, newStubRunner()))
+	defer server.Close()
+
+	reqCtx, disconnect := context.WithCancel(t.Context())
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, server.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/events: %v", err)
+	}
+	defer res.Body.Close()
+
+	disconnect()
+
+	select {
+	case <-fake.unsubscribed:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not unsubscribe within 1s of the client disconnecting")
+	}
+}
+
+func TestEventsUnsubscribesWhenServerShutsDown(t *testing.T) {
+	fake := newFakeBus()
+	serverCtx, shutdown := context.WithCancel(t.Context())
+	server := httptest.NewServer(handlers.NewMux(serverCtx, fake, newStubRunner()))
+	defer server.Close()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/events: %v", err)
+	}
+	defer res.Body.Close()
+
+	shutdown()
+
+	select {
+	case <-fake.unsubscribed:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not unsubscribe within 1s of the server shutting down")
 	}
 }
 

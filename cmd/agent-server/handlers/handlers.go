@@ -47,7 +47,6 @@ func handleGetStreamingEvents(ctx context.Context, bus EventBus) func(w http.Res
 		// send response to client before first message - that tells clients are connected properly
 		rc.Flush()
 
-		// flush history first
 		for _, event := range history {
 			flushEventData(w, event, rc)
 		}
@@ -58,7 +57,6 @@ func handleGetStreamingEvents(ctx context.Context, bus EventBus) func(w http.Res
 				rc.Flush()
 				return
 			case <-r.Context().Done():
-
 				rc.Flush()
 				return
 			case event := <-eventStream:
