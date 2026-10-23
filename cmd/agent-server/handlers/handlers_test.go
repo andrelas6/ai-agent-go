@@ -16,12 +16,34 @@ import (
 	"time"
 )
 
+type fakeRunnerReply struct {
+	ctx        context.Context
+	workflowID string
+	input      string
+}
+
+func newFakeRunner(calls chan<- fakeRunnerReply, emits ...events.Event) handlers.Runner {
+	return func(ctx context.Context, workflowID string, input string, emit func(events.Event)) {
+		if calls != nil {
+			select {
+			case <-ctx.Done():
+			case calls <- fakeRunnerReply{ctx: ctx, workflowID: workflowID, input: input}:
+			}
+		}
+		for _, e := range emits {
+			e.WorkflowID = workflowID
+			emit(e)
+		}
+	}
+}
+
 // calling gets an open connection, then posting message receives a dumb text message
 func TestGetStreamingEvents(t *testing.T) {
 	// ----- Setup ------ //
+	fakeRunnerReplyCh := make(chan fakeRunnerReply, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	server := httptest.NewServer(newTestMux(ctx, newStubRunner(), bus.New(ctx)))
+	server := httptest.NewServer(newTestMux(ctx, newFakeRunner(fakeRunnerReplyCh, events.Event{Type: events.WorkflowStarted}), bus.New(ctx)))
 	defer server.Close()
 	// ----- Setup ------ //
 
@@ -95,6 +117,19 @@ func TestGetStreamingEvents(t *testing.T) {
 		t.Error("workflow id is empty", err)
 	}
 
+	var runnerReply fakeRunnerReply
+	select {
+	case runnerReply = <-fakeRunnerReplyCh:
+	case <-ctx.Done():
+		t.Fatal("runner was not called before the timeout")
+	}
+	if got.WorkflowId != runnerReply.workflowID {
+		t.Errorf("%s and %s should have been equal.", got.WorkflowId, runnerReply.workflowID)
+	}
+	if runnerReply.input != "test input" {
+		t.Errorf("runner input = %q, want %q", runnerReply.input, "test input")
+	}
+
 	// ----- POST MESSAGE ---- //
 
 	// ----- SECOND SSE GET ---- //
@@ -125,12 +160,44 @@ func TestGetStreamingEvents(t *testing.T) {
 	}
 }
 
-func newStubRunner() handlers.Runner {
-	return func() {}
+func TestRunnerRunsOnTheServerContext(t *testing.T) {
+	calls := make(chan fakeRunnerReply, 1)
+	serverCtx, shutdown := context.WithCancel(t.Context())
+	defer shutdown()
+	server := httptest.NewServer(newTestMux(serverCtx, newFakeRunner(calls), bus.New(serverCtx)))
+	defer server.Close()
+
+	res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(`{"input":"hello"}`))
+	if err != nil {
+		t.Fatalf("POST /api/tasks: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusAccepted)
+	}
+
+	var call fakeRunnerReply
+	select {
+	case call = <-calls:
+	case <-time.After(time.Second):
+		t.Fatal("runner was not called within 1s")
+	}
+
+	if err := call.ctx.Err(); err != nil {
+		t.Fatalf("runner ctx ended once the request finished: %v", err)
+	}
+
+	shutdown()
+
+	select {
+	case <-call.ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("runner ctx was not cancelled within 1s of the server shutting down")
+	}
 }
 
 func TestPostClearReturnsOK(t *testing.T) {
-	server := httptest.NewServer(newTestMux(t.Context(), newStubRunner(), bus.New(t.Context())))
+	server := httptest.NewServer(newTestMux(t.Context(), newFakeRunner(nil), bus.New(t.Context())))
 	defer server.Close()
 
 	res, err := http.Post(server.URL+"/api/clear", "application/json", nil)
@@ -151,7 +218,7 @@ func TestPostClearReturnsOK(t *testing.T) {
 }
 
 func TestGetTasksIsNotAllowed(t *testing.T) {
-	server := httptest.NewServer(newTestMux(t.Context(), newStubRunner(), bus.New(t.Context())))
+	server := httptest.NewServer(newTestMux(t.Context(), newFakeRunner(nil), bus.New(t.Context())))
 	defer server.Close()
 
 	res, err := http.Get(server.URL + "/api/tasks")
@@ -190,7 +257,7 @@ func (f *fakeBus) Clear() {}
 
 func TestEventsUnsubscribesWhenClientDisconnects(t *testing.T) {
 	fake := newFakeBus()
-	server := httptest.NewServer(handlers.NewMux(t.Context(), fake, newStubRunner()))
+	server := httptest.NewServer(handlers.NewMux(t.Context(), fake, newFakeRunner(nil)))
 	defer server.Close()
 
 	reqCtx, disconnect := context.WithCancel(t.Context())
@@ -216,7 +283,7 @@ func TestEventsUnsubscribesWhenClientDisconnects(t *testing.T) {
 func TestEventsUnsubscribesWhenServerShutsDown(t *testing.T) {
 	fake := newFakeBus()
 	serverCtx, shutdown := context.WithCancel(t.Context())
-	server := httptest.NewServer(handlers.NewMux(serverCtx, fake, newStubRunner()))
+	server := httptest.NewServer(handlers.NewMux(serverCtx, fake, newFakeRunner(nil)))
 	defer server.Close()
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/events", nil)
@@ -235,6 +302,41 @@ func TestEventsUnsubscribesWhenServerShutsDown(t *testing.T) {
 	case <-fake.unsubscribed:
 	case <-time.After(time.Second):
 		t.Fatal("handler did not unsubscribe within 1s of the server shutting down")
+	}
+}
+
+func TestRunnerIsNotCalledOn400(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"empty body", ``},
+		{"invalid JSON", `not json`},
+		{"empty input", `{"input":""}`},
+		{"no input field", `{"mode":"default"}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			replyFakeRunnerCh := make(chan fakeRunnerReply, 1)
+			server := httptest.NewServer(newTestMux(t.Context(), newFakeRunner(replyFakeRunnerCh), bus.New(t.Context())))
+			defer server.Close()
+
+			res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(c.body))
+			if err != nil {
+				t.Fatalf("POST /api/tasks %v", err)
+			}
+			defer res.Body.Close()
+
+			if res.StatusCode != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", res.StatusCode, http.StatusBadRequest)
+			}
+
+			select {
+			case call := <-replyFakeRunnerCh:
+				t.Fatalf("runner was called on a bad request: %+v", call)
+			case <-time.After(time.Millisecond * 100):
+			}
+		})
 	}
 }
 

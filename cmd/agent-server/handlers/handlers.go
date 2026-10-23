@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"andrelas6/ai-agent-go/internal/events"
@@ -11,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type Runner func()
+type Runner func(ctx context.Context, workflowID string, input string, emit func(events.Event))
 
 // pub/sub
 type EventBus interface {
@@ -23,7 +24,7 @@ type EventBus interface {
 func NewMux(ctx context.Context, bus EventBus, run Runner) *http.ServeMux {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("POST /api/tasks", handlePostTasks(bus))
+	mux.HandleFunc("POST /api/tasks", handlePostTasks(ctx, bus, run))
 	mux.HandleFunc("POST /api/clear", handlePostClear(bus))
 	mux.HandleFunc("GET /api/events", handleGetStreamingEvents(ctx, bus))
 	mux.HandleFunc("GET /health", func(resWriter http.ResponseWriter, request *http.Request) {
@@ -71,7 +72,7 @@ func flushEventData(w http.ResponseWriter, event events.Event, rc *http.Response
 	// TODO: improve this error handling
 	if err != nil {
 		// no op for now
-		fmt.Printf("error marshaling %v", err)
+		log.Printf("error marshaling %v", err)
 		return err
 	}
 
@@ -82,18 +83,17 @@ func flushEventData(w http.ResponseWriter, event events.Event, rc *http.Response
 	return nil
 }
 
-func handlePostTasks(b EventBus) func(w http.ResponseWriter, r *http.Request) {
-	var reqBody struct {
-		Input string `json:"input"`
-		// QUESTION: What's the purpose of mode?
-		Mode string `json:"mode"`
-	}
+func handlePostTasks(ctx context.Context, b EventBus, runner Runner) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		var reqBody struct {
+			Input string `json:"input"`
+			Mode  string `json:"mode"`
+		}
 		decoder := json.NewDecoder(r.Body)
 		err := decoder.Decode(&reqBody)
 		defer r.Body.Close()
 		if err != nil {
-			fmt.Printf("error decoding body %v", err)
+			log.Printf("error decoding body %v", err)
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return
 		}
@@ -103,35 +103,10 @@ func handlePostTasks(b EventBus) func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		workflowId := uuid.NewString()
-		// mocked event
-		eventStarted := events.Event{
-			ID:         uuid.NewString(),
-			WorkflowID: workflowId,
-			Type:       events.WorkflowStarted,
-			Input:      reqBody.Input,
-		}
-		eventLog := events.Event{
-			ID:         uuid.NewString(),
-			WorkflowID: workflowId,
-			Type:       events.Log,
-			Message:    "no model yet",
-			Input:      reqBody.Input,
-		}
-		eventCompleted := events.Event{
-			ID:         uuid.NewString(),
-			WorkflowID: workflowId,
-			Type:       events.WorkflowCompleted,
-			Input:      reqBody.Input,
-		}
+		workflowID := uuid.NewString()
+		go runner(ctx, workflowID, reqBody.Input, b.Publish)
 
-		go func() {
-			b.Publish(eventStarted)
-			b.Publish(eventLog)
-			b.Publish(eventCompleted)
-		}()
-
-		writeJSON(w, http.StatusAccepted, map[string]string{"workflowId": workflowId})
+		writeJSON(w, http.StatusAccepted, map[string]string{"workflowId": workflowID})
 	}
 }
 

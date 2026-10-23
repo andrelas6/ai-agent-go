@@ -4,7 +4,6 @@ import (
 	"andrelas6/ai-agent-go/cmd/agent-server/handlers"
 	"andrelas6/ai-agent-go/internal/bus"
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -20,13 +19,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	var runner handlers.Runner
-
-	runner = func() {
-		fmt.Println("RUNNING")
-	}
-
-	mux := handlers.NewMux(ctx, bus.New(ctx), runner)
+	mux := handlers.NewMux(ctx, bus.New(ctx), newStubRunner())
 
 	server := &http.Server{
 		Addr:              ":8002",
