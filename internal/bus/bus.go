@@ -4,6 +4,7 @@ import (
 	"andrelas6/ai-agent-go/internal/events"
 	"context"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -77,6 +78,8 @@ func New(ctx context.Context) *Bus {
 					close(ch)
 				}
 			case event := <-publishCh:
+				event.ID = uuid.NewString()
+				event.TS = time.Now().UnixMilli()
 				history = append(history, event)
 				for _, eventStream := range streams {
 					eventStream <- event

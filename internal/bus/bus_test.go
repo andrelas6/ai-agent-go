@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Is this the best way to test this?
@@ -101,14 +103,14 @@ func TestLiveEventsArriveInPublishOrder(t *testing.T) {
 
 	want := []string{"event-1", "event-2", "event-3"}
 	for _, id := range want {
-		b.Publish(events.Event{ID: id})
+		b.Publish(events.Event{Message: id})
 	}
 
 	got := make([]string, 0, len(want))
 	for range want {
 		select {
 		case e := <-live:
-			got = append(got, e.ID)
+			got = append(got, e.Message)
 		case <-ctx.Done():
 			t.Fatalf("got %v before timeout, want %v", got, want)
 		}
@@ -123,15 +125,15 @@ func TestEachSubscriberGetsHistoryAsOfItsSubscribe(t *testing.T) {
 	defer cancel()
 	b := bus.New(ctx)
 
-	b.Publish(events.Event{ID: "event-1"})
+	b.Publish(events.Event{Message: "event-1"})
 	historyA, _, unsubscribeA := b.Subscribe()
 	defer unsubscribeA()
 
-	b.Publish(events.Event{ID: "event-2"})
+	b.Publish(events.Event{Message: "event-2"})
 	historyB, _, unsubscribeB := b.Subscribe()
 	defer unsubscribeB()
 
-	b.Publish(events.Event{ID: "event-3"})
+	b.Publish(events.Event{Message: "event-3"})
 	historyC, _, unsubscribeC := b.Subscribe()
 	defer unsubscribeC()
 
@@ -145,7 +147,7 @@ func TestEachSubscriberGetsHistoryAsOfItsSubscribe(t *testing.T) {
 		{"C", historyC, []string{"event-1", "event-2", "event-3"}},
 	}
 	for _, c := range cases {
-		if got := eventIDs(c.history); !slices.Equal(got, c.want) {
+		if got := eventMessages(c.history); !slices.Equal(got, c.want) {
 			t.Errorf("subscriber %s history = %v, want %v", c.name, got, c.want)
 		}
 	}
@@ -189,16 +191,16 @@ func TestHistoryAndLiveHoldEachEventOnce(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for _, id := range want {
-				b.Publish(events.Event{ID: id})
+				b.Publish(events.Event{Message: id})
 			}
 		}()
 		history, live, unsubscribe := b.Subscribe()
 		wg.Wait()
 		unsubscribe()
 
-		got := eventIDs(history)
+		got := eventMessages(history)
 		for e := range live {
-			got = append(got, e.ID)
+			got = append(got, e.Message)
 		}
 		cancel()
 
@@ -216,10 +218,46 @@ func eventTypes(list []events.Event) []events.Type {
 	return types
 }
 
-func eventIDs(history []events.Event) []string {
-	ids := make([]string, 0, len(history))
-	for _, e := range history {
-		ids = append(ids, e.ID)
+func TestPublishStampsIDAndTimestamp(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+
+	_, live, unsubscribe := b.Subscribe()
+	defer unsubscribe()
+
+	before := time.Now().UnixMilli()
+	b.Publish(events.Event{Type: events.Log, Message: "hello"})
+
+	var fromLive events.Event
+	select {
+	case fromLive = <-live:
+	case <-ctx.Done():
+		t.Fatal("no live event before the timeout")
 	}
-	return ids
+
+	history, _, unsubscribeLate := b.Subscribe()
+	defer unsubscribeLate()
+	if len(history) != 1 {
+		t.Fatalf("history has %d events, want 1", len(history))
+	}
+	fromHistory := history[0]
+
+	if _, err := uuid.Parse(fromLive.ID); err != nil {
+		t.Errorf("live ID %q is not a UUID: %v", fromLive.ID, err)
+	}
+	if fromLive.TS < before {
+		t.Errorf("live TS = %d, want at least %d (milliseconds)", fromLive.TS, before)
+	}
+	if fromHistory.ID != fromLive.ID || fromHistory.TS != fromLive.TS {
+		t.Errorf("history has ID %q and TS %d, live has ID %q and TS %d; want the same stamp", fromHistory.ID, fromHistory.TS, fromLive.ID, fromLive.TS)
+	}
+}
+
+func eventMessages(history []events.Event) []string {
+	messages := make([]string, 0, len(history))
+	for _, e := range history {
+		messages = append(messages, e.Message)
+	}
+	return messages
 }
