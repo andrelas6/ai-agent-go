@@ -15,13 +15,13 @@ import (
 
 // Is this the best way to test this?
 // Also, maybe I should use a timeout (with context) so that this test does not hang if there is a regression problem with it?
-func TestEventBus(t *testing.T) {
+func TestSubscriberGetsPublishedEvent(t *testing.T) {
 	// send event, get event
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	b := bus.New(ctx)
 
-	_, readStream, unsubscribe := b.Subscribe()
+	_, live, unsubscribe := b.Subscribe()
 	defer unsubscribe()
 
 	b.Publish(events.Event{
@@ -29,7 +29,7 @@ func TestEventBus(t *testing.T) {
 	})
 
 	select {
-	case event := <-readStream:
+	case event := <-live:
 		if event.Type != events.WorkflowStarted {
 			t.Fatalf("expected %v. got %v", events.WorkflowStarted, event.Type)
 		}
@@ -191,7 +191,7 @@ func TestHistoryAndLiveHoldEachEventOnce(t *testing.T) {
 	}
 }
 
-func TestPublishDoesNotBlock(t *testing.T) {
+func TestSlowSubscriberDoesNotBlockOthers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*3)
 	defer cancel()
 	b := bus.New(ctx)

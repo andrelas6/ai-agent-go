@@ -18,18 +18,18 @@ import (
 	"github.com/google/uuid"
 )
 
-type fakeRunnerReply struct {
+type runCall struct {
 	ctx        context.Context
 	workflowID string
 	input      string
 }
 
-func newFakeRunner(calls chan<- fakeRunnerReply, emits ...events.Event) handlers.Runner {
+func newFakeRunner(calls chan<- runCall, emits ...events.Event) handlers.Runner {
 	return func(ctx context.Context, workflowID string, input string, emit func(events.Event)) {
 		if calls != nil {
 			select {
 			case <-ctx.Done():
-			case calls <- fakeRunnerReply{ctx: ctx, workflowID: workflowID, input: input}:
+			case calls <- runCall{ctx: ctx, workflowID: workflowID, input: input}:
 			}
 		}
 		for _, e := range emits {
@@ -42,10 +42,10 @@ func newFakeRunner(calls chan<- fakeRunnerReply, emits ...events.Event) handlers
 // calling gets an open connection, then posting message receives a dumb text message
 func TestGetStreamingEvents(t *testing.T) {
 	// ----- Setup ------ //
-	fakeRunnerReplyCh := make(chan fakeRunnerReply, 1)
+	calls := make(chan runCall, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	server := httptest.NewServer(handlers.NewMux(ctx, bus.New(ctx), newFakeRunner(fakeRunnerReplyCh, events.Event{Type: events.WorkflowStarted})))
+	server := httptest.NewServer(handlers.NewMux(ctx, bus.New(ctx), newFakeRunner(calls, events.Event{Type: events.WorkflowStarted})))
 	defer server.Close()
 	// ----- Setup ------ //
 
@@ -119,17 +119,17 @@ func TestGetStreamingEvents(t *testing.T) {
 		t.Error("workflow id is empty", err)
 	}
 
-	var runnerReply fakeRunnerReply
+	var call runCall
 	select {
-	case runnerReply = <-fakeRunnerReplyCh:
+	case call = <-calls:
 	case <-ctx.Done():
 		t.Fatal("runner was not called before the timeout")
 	}
-	if got.WorkflowId != runnerReply.workflowID {
-		t.Errorf("%s and %s should have been equal.", got.WorkflowId, runnerReply.workflowID)
+	if got.WorkflowId != call.workflowID {
+		t.Errorf("%s and %s should have been equal.", got.WorkflowId, call.workflowID)
 	}
-	if runnerReply.input != "test input" {
-		t.Errorf("runner input = %q, want %q", runnerReply.input, "test input")
+	if call.input != "test input" {
+		t.Errorf("runner input = %q, want %q", call.input, "test input")
 	}
 
 	// ----- POST MESSAGE ---- //
@@ -163,7 +163,7 @@ func TestGetStreamingEvents(t *testing.T) {
 }
 
 func TestRunnerRunsOnTheServerContext(t *testing.T) {
-	calls := make(chan fakeRunnerReply, 1)
+	calls := make(chan runCall, 1)
 	serverCtx, shutdown := context.WithCancel(t.Context())
 	defer shutdown()
 	server := httptest.NewServer(handlers.NewMux(serverCtx, bus.New(serverCtx), newFakeRunner(calls)))
@@ -178,7 +178,7 @@ func TestRunnerRunsOnTheServerContext(t *testing.T) {
 		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusAccepted)
 	}
 
-	var call fakeRunnerReply
+	var call runCall
 	select {
 	case call = <-calls:
 	case <-time.After(time.Second):
@@ -319,8 +319,8 @@ func TestRunnerIsNotCalledOn400(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			replyFakeRunnerCh := make(chan fakeRunnerReply, 1)
-			server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(replyFakeRunnerCh)))
+			calls := make(chan runCall, 1)
+			server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(calls)))
 			defer server.Close()
 
 			res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(c.body))
@@ -334,7 +334,7 @@ func TestRunnerIsNotCalledOn400(t *testing.T) {
 			}
 
 			select {
-			case call := <-replyFakeRunnerCh:
+			case call := <-calls:
 				t.Fatalf("runner was called on a bad request: %+v", call)
 			case <-time.After(time.Millisecond * 100):
 			}

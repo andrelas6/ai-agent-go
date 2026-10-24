@@ -16,7 +16,7 @@ type Runner func(ctx context.Context, workflowID string, input string, emit func
 
 // pub/sub
 type EventBus interface {
-	Subscribe() (history []events.Event, readStream <-chan events.Event, unsubscribe func())
+	Subscribe() (history []events.Event, live <-chan events.Event, unsubscribe func())
 	Publish(events.Event)
 	Clear()
 }
@@ -26,7 +26,7 @@ func NewMux(ctx context.Context, bus EventBus, run Runner) *http.ServeMux {
 
 	mux.HandleFunc("POST /api/tasks", handlePostTasks(ctx, bus, run))
 	mux.HandleFunc("POST /api/clear", handlePostClear(bus))
-	mux.HandleFunc("GET /api/events", handleGetStreamingEvents(ctx, bus))
+	mux.HandleFunc("GET /api/events", handleEvents(ctx, bus))
 	mux.HandleFunc("GET /health", func(resWriter http.ResponseWriter, request *http.Request) {
 		resWriter.Write([]byte("ok"))
 	})
@@ -34,7 +34,7 @@ func NewMux(ctx context.Context, bus EventBus, run Runner) *http.ServeMux {
 	return mux
 }
 
-func handleGetStreamingEvents(ctx context.Context, bus EventBus) func(w http.ResponseWriter, r *http.Request) {
+func handleEvents(ctx context.Context, bus EventBus) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		history, eventStream, unsubscribe := bus.Subscribe()
 		defer unsubscribe()

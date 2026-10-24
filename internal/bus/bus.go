@@ -19,44 +19,44 @@ type subscription struct {
 }
 
 type Bus struct {
-	publishCh          chan events.Event
-	subscriptionStream chan subscription
-	unsubscribeCh      chan chan events.Event
-	clearCh            chan struct{}
-	done               <-chan struct{}
+	publish     chan events.Event
+	subscribe   chan subscription
+	unsubscribe chan chan events.Event
+	clear       chan struct{}
+	done        <-chan struct{}
 }
 
-func (e *Bus) Clear() {
+func (b *Bus) Clear() {
 	select {
-	case <-e.done:
-	case e.clearCh <- struct{}{}:
+	case <-b.done:
+	case b.clear <- struct{}{}:
 	}
 }
 
-func (e *Bus) Publish(event events.Event) {
+func (b *Bus) Publish(event events.Event) {
 	// don't add this to a go routine to avoid breaking ordering with Subscribe
 	// TODO: add test to check ordering
 	select {
-	case <-e.done:
-	case e.publishCh <- event:
+	case <-b.done:
+	case b.publish <- event:
 	}
 }
 
-func (e *Bus) Subscribe() (history []events.Event, readStream <-chan events.Event, unsubscribe func()) {
-	eventStream := make(chan events.Event, SubscriberBuffer)
+func (b *Bus) Subscribe() (history []events.Event, live <-chan events.Event, unsubscribe func()) {
+	stream := make(chan events.Event, SubscriberBuffer)
 	// throaway reply channel just to get the history back without data races (publish/subscribe concurrently)
-	replyCh := make(chan []events.Event, 1)
+	reply := make(chan []events.Event, 1)
 
 	// order is also important, because a publisher after a subscribe should work for that subscribe (causal consistency)
 	select {
-	case <-e.done:
+	case <-b.done:
 		return nil, nil, func() {}
-	case e.subscriptionStream <- subscription{eventStream: eventStream, reply: replyCh}:
-		return <-replyCh,
-			eventStream, func() {
+	case b.subscribe <- subscription{eventStream: stream, reply: reply}:
+		return <-reply,
+			stream, func() {
 				select {
-				case <-e.done:
-				case e.unsubscribeCh <- eventStream:
+				case <-b.done:
+				case b.unsubscribe <- stream:
 				}
 			}
 	}
@@ -66,19 +66,22 @@ func New(ctx context.Context) *Bus {
 	streams := make(map[chan events.Event]struct{})
 
 	history := make([]events.Event, 0)
-	publishCh := make(chan events.Event)
-	subscriptionCh := make(chan subscription)
-	unsubscribeCh := make(chan chan events.Event)
-	clearCh := make(chan struct{})
+	b := &Bus{
+		publish:     make(chan events.Event),
+		subscribe:   make(chan subscription),
+		unsubscribe: make(chan chan events.Event),
+		clear:       make(chan struct{}),
+		done:        ctx.Done(),
+	}
 	go func() {
 		for {
 			select {
-			case ch := <-unsubscribeCh:
+			case ch := <-b.unsubscribe:
 				if _, ok := streams[ch]; ok {
 					delete(streams, ch)
 					close(ch)
 				}
-			case event := <-publishCh:
+			case event := <-b.publish:
 				event.ID = uuid.NewString()
 				event.TS = time.Now().UnixMilli()
 				history = append(history, event)
@@ -90,10 +93,10 @@ func New(ctx context.Context) *Bus {
 					default:
 					}
 				}
-			case subscription := <-subscriptionCh:
+			case subscription := <-b.subscribe:
 				streams[subscription.eventStream] = struct{}{}
 				subscription.reply <- slices.Clone(history)
-			case <-clearCh:
+			case <-b.clear:
 				history = make([]events.Event, 0)
 			case <-ctx.Done():
 				return
@@ -101,11 +104,5 @@ func New(ctx context.Context) *Bus {
 		}
 	}()
 
-	return &Bus{
-		publishCh:          publishCh,
-		subscriptionStream: subscriptionCh,
-		unsubscribeCh:      unsubscribeCh,
-		clearCh:            clearCh,
-		done:               ctx.Done(),
-	}
+	return b
 }
