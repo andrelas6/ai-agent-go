@@ -12,24 +12,24 @@ import (
 const SubscriberBuffer = 256
 
 type subscription struct {
-	eventStream chan events.Event
+	liveEventCh chan events.Event
 	// to avoid data races in the history slice, the writing/reading of the history slice must be done in the same select
 	// the reply channel is there just to make sure that works
-	reply chan []events.Event
+	replyCh chan []events.Event
 }
 
 type Bus struct {
-	publish     chan events.Event
-	subscribe   chan subscription
-	unsubscribe chan chan events.Event
-	clear       chan struct{}
-	done        <-chan struct{}
+	publishCh     chan events.Event
+	subscribeCh   chan subscription
+	unsubscribeCh chan chan events.Event
+	clearCh       chan struct{}
+	doneCh        <-chan struct{}
 }
 
 func (b *Bus) Clear() {
 	select {
-	case <-b.done:
-	case b.clear <- struct{}{}:
+	case <-b.doneCh:
+	case b.clearCh <- struct{}{}:
 	}
 }
 
@@ -37,26 +37,26 @@ func (b *Bus) Publish(event events.Event) {
 	// don't add this to a go routine to avoid breaking ordering with Subscribe
 	// TODO: add test to check ordering
 	select {
-	case <-b.done:
-	case b.publish <- event:
+	case <-b.doneCh:
+	case b.publishCh <- event:
 	}
 }
 
-func (b *Bus) Subscribe() (history []events.Event, live <-chan events.Event, unsubscribe func()) {
-	stream := make(chan events.Event, SubscriberBuffer)
+func (b *Bus) Subscribe() (history []events.Event, liveEventCh <-chan events.Event, unsubscribe func()) {
+	eventCh := make(chan events.Event, SubscriberBuffer)
 	// throaway reply channel just to get the history back without data races (publish/subscribe concurrently)
-	reply := make(chan []events.Event, 1)
+	replyCh := make(chan []events.Event, 1)
 
 	// order is also important, because a publisher after a subscribe should work for that subscribe (causal consistency)
 	select {
-	case <-b.done:
+	case <-b.doneCh:
 		return nil, nil, func() {}
-	case b.subscribe <- subscription{eventStream: stream, reply: reply}:
-		return <-reply,
-			stream, func() {
+	case b.subscribeCh <- subscription{liveEventCh: eventCh, replyCh: replyCh}:
+		return <-replyCh,
+			eventCh, func() {
 				select {
-				case <-b.done:
-				case b.unsubscribe <- stream:
+				case <-b.doneCh:
+				case b.unsubscribeCh <- eventCh:
 				}
 			}
 	}
@@ -67,21 +67,21 @@ func New(ctx context.Context) *Bus {
 
 	history := make([]events.Event, 0)
 	b := &Bus{
-		publish:     make(chan events.Event),
-		subscribe:   make(chan subscription),
-		unsubscribe: make(chan chan events.Event),
-		clear:       make(chan struct{}),
-		done:        ctx.Done(),
+		publishCh:     make(chan events.Event),
+		subscribeCh:   make(chan subscription),
+		unsubscribeCh: make(chan chan events.Event),
+		clearCh:       make(chan struct{}),
+		doneCh:        ctx.Done(),
 	}
 	go func() {
 		for {
 			select {
-			case ch := <-b.unsubscribe:
+			case ch := <-b.unsubscribeCh:
 				if _, ok := streams[ch]; ok {
 					delete(streams, ch)
 					close(ch)
 				}
-			case event := <-b.publish:
+			case event := <-b.publishCh:
 				event.ID = uuid.NewString()
 				event.TS = time.Now().UnixMilli()
 				history = append(history, event)
@@ -93,10 +93,10 @@ func New(ctx context.Context) *Bus {
 					default:
 					}
 				}
-			case subscription := <-b.subscribe:
-				streams[subscription.eventStream] = struct{}{}
-				subscription.reply <- slices.Clone(history)
-			case <-b.clear:
+			case subscription := <-b.subscribeCh:
+				streams[subscription.liveEventCh] = struct{}{}
+				subscription.replyCh <- slices.Clone(history)
+			case <-b.clearCh:
 				history = make([]events.Event, 0)
 			case <-ctx.Done():
 				return
