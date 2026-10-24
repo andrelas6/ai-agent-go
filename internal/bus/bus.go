@@ -35,7 +35,6 @@ func (b *Bus) Clear() {
 
 func (b *Bus) Publish(event events.Event) {
 	// don't add this to a go routine to avoid breaking ordering with Subscribe
-	// TODO: add test to check ordering
 	select {
 	case <-b.doneCh:
 	case b.publishCh <- event:
@@ -87,7 +86,7 @@ func New(ctx context.Context) *Bus {
 				history = append(history, event)
 				for eventStream := range streams {
 					// if buffer is full, drop events
-					// TODO: disconnect handler assigned to that stream so that they can reconnect
+					// TODO: disconnect the handler assigned to that stream when the eventStream is full so that they can reconnect
 					select {
 					case eventStream <- event:
 					default:
