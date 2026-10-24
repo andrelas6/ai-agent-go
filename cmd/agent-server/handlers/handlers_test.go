@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type fakeRunnerReply struct {
@@ -338,6 +340,93 @@ func TestRunnerIsNotCalledOn400(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEventsSendsHistoryBeforeLiveEvents(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+	server := httptest.NewServer(newTestMux(ctx, newFakeRunner(nil), b))
+	t.Cleanup(server.Close)
+
+	b.Publish(events.Event{Type: events.Log, Message: "from-history"})
+
+	stream := openEventStream(t, ctx, server.URL)
+	b.Publish(events.Event{Type: events.Log, Message: "live"})
+
+	for _, want := range []string{"from-history", "live"} {
+		if got := readEvent(t, stream).Message; got != want {
+			t.Fatalf("got event %q, want %q", got, want)
+		}
+	}
+}
+
+func TestPostClearEmptiesTheHistory(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+	server := httptest.NewServer(newTestMux(ctx, newFakeRunner(nil), b))
+	t.Cleanup(server.Close)
+
+	b.Publish(events.Event{Type: events.Log, Message: "before-clear"})
+
+	res, err := http.Post(server.URL+"/api/clear", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /api/clear: %v", err)
+	}
+	res.Body.Close()
+
+	stream := openEventStream(t, ctx, server.URL)
+	b.Publish(events.Event{Type: events.Log, Message: "after-clear"})
+
+	if got := readEvent(t, stream).Message; got != "after-clear" {
+		t.Errorf("first event after Clear = %q, want %q", got, "after-clear")
+	}
+}
+
+func TestPostTasksReturnsAUUIDWorkflowID(t *testing.T) {
+	server := httptest.NewServer(newTestMux(t.Context(), newFakeRunner(nil), bus.New(t.Context())))
+	defer server.Close()
+
+	res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(`{"input":"hello"}`))
+	if err != nil {
+		t.Fatalf("POST /api/tasks: %v", err)
+	}
+	defer res.Body.Close()
+
+	var body struct {
+		WorkflowID string `json:"workflowId"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if _, err := uuid.Parse(body.WorkflowID); err != nil {
+		t.Errorf("workflowId %q is not a UUID: %v", body.WorkflowID, err)
+	}
+}
+
+func openEventStream(t *testing.T, ctx context.Context, serverURL string) *bufio.Reader {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serverURL+"/api/events", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/events: %v", err)
+	}
+	t.Cleanup(func() { res.Body.Close() })
+	return bufio.NewReader(res.Body)
+}
+
+func readEvent(t *testing.T, stream *bufio.Reader) events.Event {
+	t.Helper()
+	_, data := readSSEMessage(t, stream)
+	var event events.Event
+	if err := json.Unmarshal([]byte(data), &event); err != nil {
+		t.Fatalf("unmarshal %q: %v", data, err)
+	}
+	return event
 }
 
 func readBody(t *testing.T, res *http.Response) string {
