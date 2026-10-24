@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const SubscriberBuffer = 256
+
 type subscription struct {
 	id          string
 	eventStream chan events.Event
@@ -27,7 +29,10 @@ type Bus struct {
 }
 
 func (e *Bus) Clear() {
-	e.clearCh <- struct{}{}
+	select {
+	case <-e.done:
+	case e.clearCh <- struct{}{}:
+	}
 }
 
 func (e *Bus) Publish(event events.Event) {
@@ -40,7 +45,7 @@ func (e *Bus) Publish(event events.Event) {
 }
 
 func (e *Bus) Subscribe() (history []events.Event, readStream <-chan events.Event, unsubscribe func()) {
-	eventStream := make(chan events.Event, 256)
+	eventStream := make(chan events.Event, SubscriberBuffer)
 	// throaway reply channel just to get the history back without data races (publish/subscribe concurrently)
 	replyCh := make(chan []events.Event, 1)
 
@@ -82,7 +87,12 @@ func New(ctx context.Context) *Bus {
 				event.TS = time.Now().UnixMilli()
 				history = append(history, event)
 				for _, eventStream := range streams {
-					eventStream <- event
+					// if buffer is full, drop events
+					// TODO: disconnect handler assigned to that stream so that they can reconnect
+					select {
+					case eventStream <- event:
+					default:
+					}
 				}
 			case subscription := <-subscriptionCh:
 				streams[subscription.id] = subscription.eventStream

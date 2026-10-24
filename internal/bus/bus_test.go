@@ -210,6 +210,75 @@ func TestHistoryAndLiveHoldEachEventOnce(t *testing.T) {
 	}
 }
 
+func TestPublishDoesNotBlock(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*3)
+	defer cancel()
+	b := bus.New(ctx)
+	eventCount := bus.SubscriberBuffer + 50
+
+	_, _, unsubscribe := b.Subscribe()
+	defer unsubscribe()
+	_, streamB, unsubscribe := b.Subscribe()
+	defer unsubscribe()
+	missingEventStream := make(chan string, 1)
+	eventsWrongOrderStream := make(chan string, 1)
+	allEventsReadCh := make(chan struct{}, 1)
+
+	go func() {
+		for i := range eventCount {
+			b.Publish(events.Event{Message: fmt.Sprintf("event-%d", i)})
+		}
+	}()
+
+	go func() {
+		counter := 0
+		for {
+			select {
+			case event := <-streamB:
+				if event.Message != fmt.Sprintf("event-%d", counter) {
+					eventsWrongOrderStream <- fmt.Sprintf("got %q, want event-%d", event.Message, counter)
+					return
+				}
+				counter++
+				// counter reached eventCount - it means all events were received
+				if counter == eventCount {
+					allEventsReadCh <- struct{}{}
+					return
+				}
+			case <-time.After(time.Second * 1):
+				missingEventStream <- fmt.Sprintf("got %d of %d", counter, eventCount)
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-allEventsReadCh:
+	case reason := <-missingEventStream:
+		t.Fatalf("reason: %s", reason)
+	case reason := <-eventsWrongOrderStream:
+		t.Fatalf("reason: %s", reason)
+	}
+}
+
+func TestClearReturnsAfterShutdown(t *testing.T) {
+	ctx, shutdown := context.WithCancel(t.Context())
+	b := bus.New(ctx)
+	shutdown()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		b.Clear()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Clear did not return within 1s of the bus shutting down")
+	}
+}
+
 func eventTypes(list []events.Event) []events.Type {
 	types := make([]events.Type, 0, len(list))
 	for _, e := range list {
