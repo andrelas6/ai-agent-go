@@ -40,7 +40,7 @@ func handleEvents(ctx context.Context, bus EventBus) func(w http.ResponseWriter,
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
+		// no "Connection: keep-alive": it's forbidden in HTTP/2, and HTTP/1.1 keeps the stream open without it
 
 		rc := http.NewResponseController(w)
 
@@ -48,7 +48,9 @@ func handleEvents(ctx context.Context, bus EventBus) func(w http.ResponseWriter,
 		rc.Flush()
 
 		for _, event := range history {
-			flushEventData(w, event, rc)
+			if err := flushEventData(w, event, rc); err != nil {
+				return
+			}
 		}
 
 		for {
@@ -58,7 +60,9 @@ func handleEvents(ctx context.Context, bus EventBus) func(w http.ResponseWriter,
 			case <-r.Context().Done():
 				return
 			case event := <-eventStream:
-				flushEventData(w, event, rc)
+				if err := flushEventData(w, event, rc); err != nil {
+					return
+				}
 			}
 		}
 	}
@@ -73,11 +77,11 @@ func flushEventData(w http.ResponseWriter, event events.Event, rc *http.Response
 		return err
 	}
 
-	fmt.Fprintf(w, "id: %s\n", event.ID)
-	fmt.Fprintf(w, "data: %s\n", data)
-	fmt.Fprintf(w, "\n")
-	rc.Flush()
-	return nil
+	// return write and flush errors so the caller stops looping (and unsubscribes) on a dead connection
+	if _, err := fmt.Fprintf(w, "id: %s\ndata: %s\n\n", event.ID, data); err != nil {
+		return err
+	}
+	return rc.Flush()
 }
 
 func handlePostTasks(ctx context.Context, b EventBus, runner Runner) func(w http.ResponseWriter, r *http.Request) {
@@ -99,10 +103,25 @@ func handlePostTasks(ctx context.Context, b EventBus, runner Runner) func(w http
 		}
 
 		workflowID := uuid.NewString()
-		go runner(ctx, workflowID, reqBody.Input, b.Publish)
+		go runSafely(ctx, runner, workflowID, reqBody.Input, b.Publish)
 
 		writeJSON(w, http.StatusAccepted, map[string]string{"workflowId": workflowID})
 	}
+}
+
+func runSafely(ctx context.Context, runner Runner, workflowID string, input string, emit func(events.Event)) {
+	// a panic in a goroutine kills the whole server, so turn it into workflow.failed for this workflow only
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("runner panicked for workflow %s: %v", workflowID, r)
+			emit(events.Event{
+				Type:       events.WorkflowFailed,
+				WorkflowID: workflowID,
+				Error:      fmt.Sprintf("runner panicked: %v", r),
+			})
+		}
+	}()
+	runner(ctx, workflowID, input, emit)
 }
 
 func handlePostClear(bus EventBus) func(w http.ResponseWriter, r *http.Request) {

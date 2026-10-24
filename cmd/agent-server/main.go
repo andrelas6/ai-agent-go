@@ -4,6 +4,7 @@ import (
 	"andrelas6/ai-agent-go/cmd/agent-server/handlers"
 	"andrelas6/ai-agent-go/internal/bus"
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -25,7 +26,7 @@ func main() {
 
 	go func() {
 		log.Println("listening on :8002")
-		if err := server.ListenAndServe(); err != nil {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("error starting the server: %v", err)
 		}
 	}()
@@ -34,5 +35,7 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	server.Shutdown(shutdownCtx)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("error shutting down the server: %v", err)
+	}
 }
