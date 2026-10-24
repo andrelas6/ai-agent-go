@@ -405,6 +405,54 @@ func TestPostTasksReturnsAUUIDWorkflowID(t *testing.T) {
 	}
 }
 
+func TestHealthReturnsOK(t *testing.T) {
+	server := httptest.NewServer(newTestMux(t.Context(), newFakeRunner(nil), bus.New(t.Context())))
+	defer server.Close()
+
+	res, err := http.Get(server.URL + "/health")
+	if err != nil {
+		t.Fatalf("GET /health: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", res.StatusCode, http.StatusOK)
+	}
+	if got := readBody(t, res); got != "ok" {
+		t.Errorf("body = %q, want %q", got, "ok")
+	}
+}
+
+func TestOldRoutesAreGone(t *testing.T) {
+	server := httptest.NewServer(newTestMux(t.Context(), newFakeRunner(nil), bus.New(t.Context())))
+	defer server.Close()
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/sse"},
+		{http.MethodPost, "/messages"},
+	}
+	for _, c := range cases {
+		t.Run(c.method+" "+c.path, func(t *testing.T) {
+			req, err := http.NewRequestWithContext(t.Context(), c.method, server.URL+c.path, strings.NewReader(`{"message":"hi"}`))
+			if err != nil {
+				t.Fatalf("new request: %v", err)
+			}
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", c.method, c.path, err)
+			}
+			defer res.Body.Close()
+
+			if res.StatusCode != http.StatusNotFound {
+				t.Errorf("status = %d, want %d", res.StatusCode, http.StatusNotFound)
+			}
+		})
+	}
+}
+
 func openEventStream(t *testing.T, ctx context.Context, serverURL string) *bufio.Reader {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serverURL+"/api/events", nil)

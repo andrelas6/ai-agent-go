@@ -11,10 +11,6 @@ import (
 	"time"
 )
 
-type ChatRequest struct {
-	Message string `json:"message"`
-}
-
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
