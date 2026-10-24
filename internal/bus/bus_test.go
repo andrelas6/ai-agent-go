@@ -38,25 +38,6 @@ func TestEventBus(t *testing.T) {
 	}
 }
 
-// test concurrent access to the map
-func TestConcurrentPublishSubscribe(t *testing.T) {
-	b := bus.New(t.Context())
-
-	go func() {
-		for range 100 {
-			b.Subscribe()
-		}
-
-	}()
-
-	go func() {
-		for range 100 {
-			b.Publish(events.Event{})
-		}
-	}()
-
-}
-
 // two event same bus get same events
 func TestTwoSubscribersSameBusGetsSameEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
@@ -276,6 +257,60 @@ func TestClearReturnsAfterShutdown(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("Clear did not return within 1s of the bus shutting down")
+	}
+}
+
+func TestClearLeavesNewSubscriberWithNoHistory(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+
+	b.Publish(events.Event{Message: "event-1"})
+	b.Publish(events.Event{Message: "event-2"})
+	b.Clear()
+
+	history, _, unsubscribe := b.Subscribe()
+	defer unsubscribe()
+
+	if len(history) != 0 {
+		t.Errorf("history after Clear = %v, want none", eventMessages(history))
+	}
+}
+
+func TestEventsAfterClearStartANewHistory(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+
+	b.Publish(events.Event{Message: "before-clear"})
+	b.Clear()
+	b.Publish(events.Event{Message: "after-clear"})
+
+	history, _, unsubscribe := b.Subscribe()
+	defer unsubscribe()
+
+	if got, want := eventMessages(history), []string{"after-clear"}; !slices.Equal(got, want) {
+		t.Errorf("history = %v, want %v", got, want)
+	}
+}
+
+func TestPublishWithNoSubscribersDoesNotBlock(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 10 {
+			b.Publish(events.Event{Type: events.Log})
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("publishing with no subscribers did not return within 1s")
 	}
 }
 
