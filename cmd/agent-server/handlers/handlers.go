@@ -14,7 +14,6 @@ import (
 
 type Runner func(ctx context.Context, workflowID string, input string, emit func(events.Event))
 
-// pub/sub
 type EventBus interface {
 	Subscribe() (history []events.Event, liveEventCh <-chan events.Event, unsubscribe func())
 	Publish(events.Event)
