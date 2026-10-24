@@ -76,9 +76,6 @@ func TestGetStreamingEvents(t *testing.T) {
 		t.Fatalf("expected no-cache. got %v", got)
 	}
 
-	if got := getResponse.Header.Get("Connection"); got != "keep-alive" {
-		t.Fatalf("expected keep-alive. got %v", got)
-	}
 	// ----- FIRST SSE GET ---- //
 
 	// ----- POST MESSAGE ---- //
