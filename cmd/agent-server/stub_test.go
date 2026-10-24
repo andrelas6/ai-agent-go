@@ -12,7 +12,7 @@ func TestStubRunnerEmitsTheCourseEvents(t *testing.T) {
 		got = append(got, e)
 	}
 
-	newStubRunner()(t.Context(), "wf-1", "hello", emit)
+	runStub(t.Context(), "wf-1", "hello", emit)
 
 	want := []events.Event{
 		{Type: events.WorkflowStarted, WorkflowID: "wf-1", Input: "hello"},

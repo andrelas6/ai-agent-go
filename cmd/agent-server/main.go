@@ -15,7 +15,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	mux := handlers.NewMux(ctx, bus.New(ctx), newStubRunner())
+	mux := handlers.NewMux(ctx, bus.New(ctx), runStub)
 
 	server := &http.Server{
 		Addr:              ":8002",

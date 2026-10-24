@@ -55,10 +55,8 @@ func handleGetStreamingEvents(ctx context.Context, bus EventBus) func(w http.Res
 		for {
 			select {
 			case <-ctx.Done():
-				rc.Flush()
 				return
 			case <-r.Context().Done():
-				rc.Flush()
 				return
 			case event := <-eventStream:
 				flushEventData(w, event, rc)
@@ -87,11 +85,9 @@ func handlePostTasks(ctx context.Context, b EventBus, runner Runner) func(w http
 	return func(w http.ResponseWriter, r *http.Request) {
 		var reqBody struct {
 			Input string `json:"input"`
-			Mode  string `json:"mode"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		err := decoder.Decode(&reqBody)
-		defer r.Body.Close()
 		if err != nil {
 			log.Printf("error decoding body %v", err)
 			http.Error(w, "invalid body", http.StatusBadRequest)

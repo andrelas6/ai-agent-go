@@ -45,7 +45,7 @@ func TestGetStreamingEvents(t *testing.T) {
 	fakeRunnerReplyCh := make(chan fakeRunnerReply, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	server := httptest.NewServer(newTestMux(ctx, newFakeRunner(fakeRunnerReplyCh, events.Event{Type: events.WorkflowStarted}), bus.New(ctx)))
+	server := httptest.NewServer(handlers.NewMux(ctx, bus.New(ctx), newFakeRunner(fakeRunnerReplyCh, events.Event{Type: events.WorkflowStarted})))
 	defer server.Close()
 	// ----- Setup ------ //
 
@@ -166,7 +166,7 @@ func TestRunnerRunsOnTheServerContext(t *testing.T) {
 	calls := make(chan fakeRunnerReply, 1)
 	serverCtx, shutdown := context.WithCancel(t.Context())
 	defer shutdown()
-	server := httptest.NewServer(newTestMux(serverCtx, newFakeRunner(calls), bus.New(serverCtx)))
+	server := httptest.NewServer(handlers.NewMux(serverCtx, bus.New(serverCtx), newFakeRunner(calls)))
 	defer server.Close()
 
 	res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(`{"input":"hello"}`))
@@ -199,7 +199,7 @@ func TestRunnerRunsOnTheServerContext(t *testing.T) {
 }
 
 func TestPostClearReturnsOK(t *testing.T) {
-	server := httptest.NewServer(newTestMux(t.Context(), newFakeRunner(nil), bus.New(t.Context())))
+	server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(nil)))
 	defer server.Close()
 
 	res, err := http.Post(server.URL+"/api/clear", "application/json", nil)
@@ -220,7 +220,7 @@ func TestPostClearReturnsOK(t *testing.T) {
 }
 
 func TestGetTasksIsNotAllowed(t *testing.T) {
-	server := httptest.NewServer(newTestMux(t.Context(), newFakeRunner(nil), bus.New(t.Context())))
+	server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(nil)))
 	defer server.Close()
 
 	res, err := http.Get(server.URL + "/api/tasks")
@@ -320,7 +320,7 @@ func TestRunnerIsNotCalledOn400(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			replyFakeRunnerCh := make(chan fakeRunnerReply, 1)
-			server := httptest.NewServer(newTestMux(t.Context(), newFakeRunner(replyFakeRunnerCh), bus.New(t.Context())))
+			server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(replyFakeRunnerCh)))
 			defer server.Close()
 
 			res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(c.body))
@@ -346,7 +346,7 @@ func TestEventsSendsHistoryBeforeLiveEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	b := bus.New(ctx)
-	server := httptest.NewServer(newTestMux(ctx, newFakeRunner(nil), b))
+	server := httptest.NewServer(handlers.NewMux(ctx, b, newFakeRunner(nil)))
 	t.Cleanup(server.Close)
 
 	b.Publish(events.Event{Type: events.Log, Message: "from-history"})
@@ -365,7 +365,7 @@ func TestPostClearEmptiesTheHistory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	b := bus.New(ctx)
-	server := httptest.NewServer(newTestMux(ctx, newFakeRunner(nil), b))
+	server := httptest.NewServer(handlers.NewMux(ctx, b, newFakeRunner(nil)))
 	t.Cleanup(server.Close)
 
 	b.Publish(events.Event{Type: events.Log, Message: "before-clear"})
@@ -385,7 +385,7 @@ func TestPostClearEmptiesTheHistory(t *testing.T) {
 }
 
 func TestPostTasksReturnsAUUIDWorkflowID(t *testing.T) {
-	server := httptest.NewServer(newTestMux(t.Context(), newFakeRunner(nil), bus.New(t.Context())))
+	server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(nil)))
 	defer server.Close()
 
 	res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(`{"input":"hello"}`))
@@ -406,7 +406,7 @@ func TestPostTasksReturnsAUUIDWorkflowID(t *testing.T) {
 }
 
 func TestHealthReturnsOK(t *testing.T) {
-	server := httptest.NewServer(newTestMux(t.Context(), newFakeRunner(nil), bus.New(t.Context())))
+	server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(nil)))
 	defer server.Close()
 
 	res, err := http.Get(server.URL + "/health")
@@ -424,7 +424,7 @@ func TestHealthReturnsOK(t *testing.T) {
 }
 
 func TestOldRoutesAreGone(t *testing.T) {
-	server := httptest.NewServer(newTestMux(t.Context(), newFakeRunner(nil), bus.New(t.Context())))
+	server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(nil)))
 	defer server.Close()
 
 	cases := []struct {
@@ -484,11 +484,6 @@ func readBody(t *testing.T, res *http.Response) string {
 		t.Fatalf("read body: %v", err)
 	}
 	return strings.TrimSpace(string(body))
-}
-
-func newTestMux(ctx context.Context, runner handlers.Runner, bus handlers.EventBus) *http.ServeMux {
-	mux := handlers.NewMux(ctx, bus, runner)
-	return mux
 }
 
 // bufio.Reader helps reading line by line of a *file reader" like res.Body
