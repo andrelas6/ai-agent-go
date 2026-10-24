@@ -99,10 +99,24 @@ func handlePostTasks(ctx context.Context, b EventBus, runner Runner) func(w http
 		}
 
 		workflowID := uuid.NewString()
-		go runner(ctx, workflowID, reqBody.Input, b.Publish)
+		go runSafely(ctx, runner, workflowID, reqBody.Input, b.Publish)
 
 		writeJSON(w, http.StatusAccepted, map[string]string{"workflowId": workflowID})
 	}
+}
+
+func runSafely(ctx context.Context, runner Runner, workflowID string, input string, emit func(events.Event)) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("runner panicked for workflow %s: %v", workflowID, r)
+			emit(events.Event{
+				Type:       events.WorkflowFailed,
+				WorkflowID: workflowID,
+				Error:      fmt.Sprintf("runner panicked: %v", r),
+			})
+		}
+	}()
+	runner(ctx, workflowID, input, emit)
 }
 
 func handlePostClear(bus EventBus) func(w http.ResponseWriter, r *http.Request) {

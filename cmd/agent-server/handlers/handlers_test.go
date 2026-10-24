@@ -509,3 +509,48 @@ func readSSEMessage(t *testing.T, r *bufio.Reader) (id, data string) {
 		}
 	}
 }
+
+func TestRunnerPanicBecomesWorkflowFailed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+	panickingRunner := func(ctx context.Context, workflowID string, input string, emit func(events.Event)) {
+		panic("boom")
+	}
+	server := httptest.NewServer(handlers.NewMux(ctx, b, panickingRunner))
+	t.Cleanup(server.Close)
+
+	stream := openEventStream(t, ctx, server.URL)
+
+	res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(`{"input":"hello"}`))
+	if err != nil {
+		t.Fatalf("POST /api/tasks: %v", err)
+	}
+	var body struct {
+		WorkflowID string `json:"workflowId"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	res.Body.Close()
+
+	event := readEvent(t, stream)
+	if event.Type != events.WorkflowFailed {
+		t.Fatalf("event type = %q, want %q", event.Type, events.WorkflowFailed)
+	}
+	if event.WorkflowID != body.WorkflowID {
+		t.Errorf("workflowId = %q, want %q", event.WorkflowID, body.WorkflowID)
+	}
+	if !strings.Contains(event.Error, "boom") {
+		t.Errorf("error = %q, want it to mention the panic", event.Error)
+	}
+
+	health, err := http.Get(server.URL + "/health")
+	if err != nil {
+		t.Fatalf("GET /health after the panic: %v", err)
+	}
+	health.Body.Close()
+	if health.StatusCode != http.StatusOK {
+		t.Errorf("health status = %d, want %d", health.StatusCode, http.StatusOK)
+	}
+}
