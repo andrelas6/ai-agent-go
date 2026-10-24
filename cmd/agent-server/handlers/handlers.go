@@ -40,6 +40,7 @@ func handleEvents(ctx context.Context, bus EventBus) func(w http.ResponseWriter,
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
+		// no "Connection: keep-alive": it's forbidden in HTTP/2, and HTTP/1.1 keeps the stream open without it
 
 		rc := http.NewResponseController(w)
 
@@ -76,6 +77,7 @@ func flushEventData(w http.ResponseWriter, event events.Event, rc *http.Response
 		return err
 	}
 
+	// return write and flush errors so the caller stops looping (and unsubscribes) on a dead connection
 	if _, err := fmt.Fprintf(w, "id: %s\ndata: %s\n\n", event.ID, data); err != nil {
 		return err
 	}
@@ -108,6 +110,7 @@ func handlePostTasks(ctx context.Context, b EventBus, runner Runner) func(w http
 }
 
 func runSafely(ctx context.Context, runner Runner, workflowID string, input string, emit func(events.Event)) {
+	// a panic in a goroutine kills the whole server, so turn it into workflow.failed for this workflow only
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("runner panicked for workflow %s: %v", workflowID, r)
