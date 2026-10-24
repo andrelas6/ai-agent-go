@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -552,5 +553,45 @@ func TestRunnerPanicBecomesWorkflowFailed(t *testing.T) {
 	health.Body.Close()
 	if health.StatusCode != http.StatusOK {
 		t.Errorf("health status = %d, want %d", health.StatusCode, http.StatusOK)
+	}
+}
+
+type brokenWriter struct {
+	header http.Header
+}
+
+func (w *brokenWriter) Header() http.Header        { return w.header }
+func (w *brokenWriter) WriteHeader(statusCode int) {}
+func (w *brokenWriter) Write([]byte) (int, error) {
+	return 0, errors.New("connection is gone")
+}
+func (w *brokenWriter) FlushError() error { return nil }
+
+func TestEventsStopsWhenWritingFails(t *testing.T) {
+	fake := newFakeBus()
+	mux := handlers.NewMux(t.Context(), fake, newFakeRunner(nil))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/events", nil)
+
+	done := make(chan struct{})
+	go func() {
+		mux.ServeHTTP(&brokenWriter{header: http.Header{}}, req)
+		close(done)
+	}()
+
+	select {
+	case fake.live <- events.Event{Type: events.Log, Message: "lost"}:
+	case <-time.After(time.Second):
+		t.Fatal("handler never read the live event")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("handler kept running after a failed write")
+	}
+	select {
+	case <-fake.unsubscribed:
+	default:
+		t.Error("handler returned without unsubscribing")
 	}
 }

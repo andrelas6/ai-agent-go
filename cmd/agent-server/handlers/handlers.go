@@ -48,7 +48,9 @@ func handleEvents(ctx context.Context, bus EventBus) func(w http.ResponseWriter,
 		rc.Flush()
 
 		for _, event := range history {
-			flushEventData(w, event, rc)
+			if err := flushEventData(w, event, rc); err != nil {
+				return
+			}
 		}
 
 		for {
@@ -58,7 +60,9 @@ func handleEvents(ctx context.Context, bus EventBus) func(w http.ResponseWriter,
 			case <-r.Context().Done():
 				return
 			case event := <-eventStream:
-				flushEventData(w, event, rc)
+				if err := flushEventData(w, event, rc); err != nil {
+					return
+				}
 			}
 		}
 	}
@@ -73,11 +77,10 @@ func flushEventData(w http.ResponseWriter, event events.Event, rc *http.Response
 		return err
 	}
 
-	fmt.Fprintf(w, "id: %s\n", event.ID)
-	fmt.Fprintf(w, "data: %s\n", data)
-	fmt.Fprintf(w, "\n")
-	rc.Flush()
-	return nil
+	if _, err := fmt.Fprintf(w, "id: %s\ndata: %s\n\n", event.ID, data); err != nil {
+		return err
+	}
+	return rc.Flush()
 }
 
 func handlePostTasks(ctx context.Context, b EventBus, runner Runner) func(w http.ResponseWriter, r *http.Request) {
