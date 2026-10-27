@@ -260,6 +260,24 @@ func TestClearReturnsAfterShutdown(t *testing.T) {
 	}
 }
 
+func TestSubscribeAfterShutdownReturnsAClosedStream(t *testing.T) {
+	ctx, shutdown := context.WithCancel(t.Context())
+	b := bus.New(ctx)
+	shutdown()
+
+	_, stream, unsubscribe := b.Subscribe("")
+	defer unsubscribe()
+
+	select {
+	case _, ok := <-stream:
+		if ok {
+			t.Fatal("got an event after shutdown, want a closed stream")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stream was still open 1s after the bus shut down")
+	}
+}
+
 func TestClearLeavesNewSubscriberWithNoHistory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()

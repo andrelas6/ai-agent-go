@@ -9,6 +9,9 @@ The model only picks the next step. The runtime does everything else: it runs th
 - **`cmd/agent-server`** is an HTTP server.
   - `POST /api/tasks` starts a task. `POST /api/clear` empties the event history.
   - `GET /api/events` streams every event over SSE. It replays the history first, then sends live events.
+    - The history keeps the last 1000 events.
+    - A reconnecting client that sends `Last-Event-ID` gets only the events after that one. An empty or unknown id gets the whole history.
+    - A client that falls 256 events behind has its stream ended. The browser reconnects and catches up.
 - **`cmd/agent-cli`** runs the same agent loop from the terminal.
 - **`internal/`** holds the code both commands share: the event types (`events`) and the in-memory event bus (`bus`).
 - **`docs/`** has the design notes, plans and reviews.
