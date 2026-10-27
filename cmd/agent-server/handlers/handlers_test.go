@@ -236,6 +236,7 @@ type fakeBus struct {
 	history      []events.Event
 	live         chan events.Event
 	unsubscribed chan struct{}
+	lastEventID  string
 }
 
 var _ handlers.EventBus = (*fakeBus)(nil)
@@ -247,7 +248,8 @@ func newFakeBus() *fakeBus {
 	}
 }
 
-func (f *fakeBus) Subscribe() ([]events.Event, <-chan events.Event, func()) {
+func (f *fakeBus) Subscribe(lastEventID string) ([]events.Event, <-chan events.Event, func()) {
+	f.lastEventID = lastEventID
 	return f.history, f.live, func() { close(f.unsubscribed) }
 }
 
@@ -590,5 +592,106 @@ func TestEventsStopsWhenWritingFails(t *testing.T) {
 	case <-fake.unsubscribed:
 	default:
 		t.Error("handler returned without unsubscribing")
+	}
+}
+
+func TestBusChannelCloseHandlerReturns(t *testing.T) {
+	// ----- Setup ------ //
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	liveCh := make(chan events.Event)
+	unsubscribedCh := make(chan struct{})
+	b := &fakeBus{
+		history:      []events.Event{},
+		live:         liveCh,
+		unsubscribed: unsubscribedCh,
+	}
+
+	server := httptest.NewServer(handlers.NewMux(ctx, b, newFakeRunner(nil, events.Event{Type: events.WorkflowStarted})))
+	defer server.Close()
+	// ----- Setup ------ //
+
+	// ----- FIRST SSE GET ---- //
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/events", nil)
+
+	if err != nil {
+		t.Fatalf("new request with context %v", err)
+	}
+
+	getResponse, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/events %v", err)
+	}
+
+	close(liveCh)
+
+	gotEofCh := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(io.Discard, getResponse.Body)
+		gotEofCh <- err
+	}()
+
+	defer getResponse.Body.Close()
+
+	if getResponse.StatusCode != http.StatusOK {
+		t.Fatalf("got %v. expected %v", getResponse.StatusCode, http.StatusOK)
+	}
+
+	select {
+	case err := <-gotEofCh:
+		if err != nil {
+			t.Fatalf("stream ended with error %v", err)
+		}
+	case <-time.After(time.Second * 1):
+		t.Fatalf("timeout 1s")
+	}
+}
+
+func TestGetHandlerReadsLastEventID(t *testing.T) {
+	cases := []struct {
+		name   string
+		header string
+		want   string
+	}{
+		{"header set", "1234", "1234"},
+		{"no header", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// create server
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
+			defer cancel()
+
+			b := newFakeBus()
+			b.lastEventID = "Subscribe not called"
+
+			server := httptest.NewServer(handlers.NewMux(ctx, b, newFakeRunner(nil, events.Event{Type: events.WorkflowStarted})))
+			defer server.Close()
+			// create request
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/events", nil)
+			if err != nil {
+				t.Fatalf("got error creating request %v", err)
+			}
+			if c.header != "" {
+				req.Header.Set("Last-Event-ID", c.header)
+			}
+
+			// fire requset
+			resp, err := http.DefaultClient.Do(req)
+			// needs to close the response otherwise it stays open
+			if err != nil {
+				t.Fatalf("got error making the request %v", err)
+			}
+
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("got %v. expected %v", resp.StatusCode, http.StatusOK)
+			}
+
+			if b.lastEventID != c.want {
+				t.Fatalf("got %q. expected %q", b.lastEventID, c.want)
+			}
+		})
 	}
 }

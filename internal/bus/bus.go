@@ -41,7 +41,7 @@ func (b *Bus) Publish(event events.Event) {
 	}
 }
 
-func (b *Bus) Subscribe() (history []events.Event, liveEventCh <-chan events.Event, unsubscribe func()) {
+func (b *Bus) Subscribe(lastEventID string) (history []events.Event, liveEventCh <-chan events.Event, unsubscribe func()) {
 	eventCh := make(chan events.Event, SubscriberBuffer)
 	// throaway reply channel just to get the history back without data races (publish/subscribe concurrently)
 	replyCh := make(chan []events.Event, 1)

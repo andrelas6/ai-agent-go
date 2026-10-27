@@ -15,7 +15,7 @@ import (
 type Runner func(ctx context.Context, workflowID string, input string, emit func(events.Event))
 
 type EventBus interface {
-	Subscribe() (history []events.Event, liveEventCh <-chan events.Event, unsubscribe func())
+	Subscribe(lastEventID string) (history []events.Event, liveEventCh <-chan events.Event, unsubscribe func())
 	Publish(events.Event)
 	Clear()
 }
@@ -35,7 +35,8 @@ func NewMux(ctx context.Context, bus EventBus, run Runner) *http.ServeMux {
 
 func handleEvents(ctx context.Context, bus EventBus) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		history, eventStream, unsubscribe := bus.Subscribe()
+		lastEventID := r.Header.Get("Last-Event-ID")
+		history, eventStream, unsubscribe := bus.Subscribe(lastEventID)
 		defer unsubscribe()
 
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -59,7 +60,11 @@ func handleEvents(ctx context.Context, bus EventBus) func(w http.ResponseWriter,
 				return
 			case <-r.Context().Done():
 				return
-			case event := <-eventStream:
+			case event, ok := <-eventStream:
+				// channel closed
+				if !ok {
+					return
+				}
 				if err := flushEventData(w, event, rc); err != nil {
 					return
 				}
