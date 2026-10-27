@@ -152,11 +152,7 @@ func TestPostClearReturnsOK(t *testing.T) {
 func TestGetTasksIsNotAllowed(t *testing.T) {
 	serverURL := newServer(t, t.Context(), bus.New(t.Context()), newFakeRunner(nil))
 
-	res, err := http.Get(serverURL + "/api/tasks")
-	if err != nil {
-		t.Fatalf("GET /api/tasks: %v", err)
-	}
-	defer res.Body.Close()
+	res := get(t, t.Context(), serverURL+"/api/tasks")
 
 	if res.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want %d", res.StatusCode, http.StatusMethodNotAllowed)
@@ -287,11 +283,7 @@ func TestPostTasksReturnsAUUIDWorkflowID(t *testing.T) {
 func TestHealthReturnsOK(t *testing.T) {
 	serverURL := newServer(t, t.Context(), bus.New(t.Context()), newFakeRunner(nil))
 
-	res, err := http.Get(serverURL + "/health")
-	if err != nil {
-		t.Fatalf("GET /health: %v", err)
-	}
-	defer res.Body.Close()
+	res := get(t, t.Context(), serverURL+"/health")
 
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", res.StatusCode, http.StatusOK)
@@ -327,6 +319,210 @@ func TestOldRoutesAreGone(t *testing.T) {
 				t.Errorf("status = %d, want %d", res.StatusCode, http.StatusNotFound)
 			}
 		})
+	}
+}
+
+func TestRunnerPanicBecomesWorkflowFailed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	panickingRunner := func(ctx context.Context, workflowID string, input string, emit func(events.Event)) {
+		panic("boom")
+	}
+	serverURL := newServer(t, ctx, bus.New(ctx), panickingRunner)
+
+	stream := openEventStream(t, ctx, serverURL)
+
+	workflowID := decodeWorkflowID(t, postTask(t, ctx, serverURL, `{"input":"hello"}`))
+
+	event := readEvent(t, stream)
+	if event.Type != events.WorkflowFailed {
+		t.Fatalf("event type = %q, want %q", event.Type, events.WorkflowFailed)
+	}
+	if event.WorkflowID != workflowID {
+		t.Errorf("workflowId = %q, want %q", event.WorkflowID, workflowID)
+	}
+	if !strings.Contains(event.Error, "boom") {
+		t.Errorf("error = %q, want it to mention the panic", event.Error)
+	}
+
+	health := get(t, ctx, serverURL+"/health")
+	if health.StatusCode != http.StatusOK {
+		t.Errorf("health status = %d, want %d", health.StatusCode, http.StatusOK)
+	}
+}
+
+type brokenWriter struct {
+	header http.Header
+}
+
+func (w *brokenWriter) Header() http.Header        { return w.header }
+func (w *brokenWriter) WriteHeader(statusCode int) {}
+func (w *brokenWriter) Write([]byte) (int, error) {
+	return 0, errors.New("connection is gone")
+}
+func (w *brokenWriter) FlushError() error { return nil }
+
+func TestEventsStopsWhenWritingFails(t *testing.T) {
+	fake := newFakeBus()
+	mux := handlers.NewMux(t.Context(), fake, newFakeRunner(nil))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/events", nil)
+
+	done := make(chan struct{})
+	go func() {
+		mux.ServeHTTP(&brokenWriter{header: http.Header{}}, req)
+		close(done)
+	}()
+
+	select {
+	case fake.live <- events.Event{Type: events.Log, Message: "lost"}:
+	case <-time.After(time.Second):
+		t.Fatal("handler never read the live event")
+	}
+
+	waitFor(t, done, "handler kept running after a failed write")
+	select {
+	case <-fake.unsubscribed:
+	default:
+		t.Error("handler returned without unsubscribing")
+	}
+}
+
+func TestEventsEndsWhenBusClosesStream(t *testing.T) {
+	// ----- Setup ------ //
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	liveCh := make(chan events.Event)
+	unsubscribedCh := make(chan struct{})
+	b := &fakeBus{
+		history:      []events.Event{},
+		live:         liveCh,
+		unsubscribed: unsubscribedCh,
+	}
+
+	serverURL := newServer(t, ctx, b, newFakeRunner(nil, events.Event{Type: events.WorkflowStarted}))
+	// ----- Setup ------ //
+
+	// ----- FIRST SSE GET ---- //
+	getResponse := getEvents(t, ctx, serverURL, "")
+
+	close(liveCh)
+
+	gotEofCh := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(io.Discard, getResponse.Body)
+		gotEofCh <- err
+	}()
+
+	if err := waitFor(t, gotEofCh, "stream did not end"); err != nil {
+		t.Fatalf("stream ended with error %v", err)
+	}
+}
+
+func TestEventsReadsLastEventID(t *testing.T) {
+	cases := []struct {
+		name   string
+		header string
+		want   string
+	}{
+		{"header set", "1234", "1234"},
+		{"no header", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// create server
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
+			defer cancel()
+
+			b := newFakeBus()
+			b.lastEventID = "Subscribe not called"
+
+			serverURL := newServer(t, ctx, b, newFakeRunner(nil, events.Event{Type: events.WorkflowStarted}))
+			// create request
+			// fire request
+			getEvents(t, ctx, serverURL, c.header)
+
+			if b.lastEventID != c.want {
+				t.Fatalf("got %q. expected %q", b.lastEventID, c.want)
+			}
+		})
+	}
+}
+
+func TestEventsStartsAfterLastEventID(t *testing.T) {
+	// setup
+	// create server
+	b, history := busWithEvents(t, t.Context(), "1", "2", "3", "4", "5")
+
+	serverURL := newServer(t, t.Context(), b, newFakeRunner(nil))
+	// make request with lastEvent ID
+	//
+	cases := []struct {
+		name                         string
+		lastEventID                  string
+		expectedFirstIncomingEventID string
+	}{
+		{
+			name:                         "no last event id",
+			lastEventID:                  "",
+			expectedFirstIncomingEventID: history[0].ID,
+		},
+		{
+			name:                         "first event id",
+			lastEventID:                  history[0].ID,
+			expectedFirstIncomingEventID: history[1].ID,
+		},
+		{
+			name:                         "middle event id",
+			lastEventID:                  history[2].ID,
+			expectedFirstIncomingEventID: history[3].ID,
+		},
+		{
+			name:                         "second to last event id",
+			lastEventID:                  history[3].ID,
+			expectedFirstIncomingEventID: history[4].ID,
+		},
+		{
+			name:                         "unknown event id",
+			lastEventID:                  "not-an-event-id",
+			expectedFirstIncomingEventID: history[0].ID,
+		},
+	}
+
+	// check that events are resumed from last event id
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*1)
+			defer cancel()
+			resp := getEvents(t, ctx, serverURL, c.lastEventID)
+
+			// reads one message - if id is after lastEventID, all good
+			id, _ := readSSEMessage(t, bufio.NewReader(resp.Body))
+
+			if id != c.expectedFirstIncomingEventID {
+				t.Fatalf("got %v. expected %v", id, c.expectedFirstIncomingEventID)
+			}
+		})
+	}
+}
+
+func TestEventsSendsNothingAfterTheLastEvent(t *testing.T) {
+	b, history := busWithEvents(t, t.Context(), "1", "2")
+
+	serverURL := newServer(t, t.Context(), b, newFakeRunner(nil))
+
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	resp := getEvents(t, ctx, serverURL, history[1].ID)
+
+	// add a deadline and read everything
+	got, err := io.ReadAll(resp.Body)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got error reading the body %v", err)
+	}
+
+	if len(got) != 0 {
+		t.Fatalf("expected 0. got %v", len(got))
 	}
 }
 
@@ -373,6 +569,20 @@ func post(t *testing.T, ctx context.Context, url, body string) *http.Response {
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST %s: %v", url, err)
+	}
+	t.Cleanup(func() { res.Body.Close() })
+	return res
+}
+
+func get(t *testing.T, ctx context.Context, url string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
 	}
 	t.Cleanup(func() { res.Body.Close() })
 	return res
@@ -457,213 +667,5 @@ func readSSEMessage(t *testing.T, r *bufio.Reader) (id, data string) {
 		case strings.HasPrefix(line, "data: "):
 			data = strings.TrimPrefix(line, "data: ")
 		}
-	}
-}
-
-func TestRunnerPanicBecomesWorkflowFailed(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
-	defer cancel()
-	panickingRunner := func(ctx context.Context, workflowID string, input string, emit func(events.Event)) {
-		panic("boom")
-	}
-	serverURL := newServer(t, ctx, bus.New(ctx), panickingRunner)
-
-	stream := openEventStream(t, ctx, serverURL)
-
-	workflowID := decodeWorkflowID(t, postTask(t, ctx, serverURL, `{"input":"hello"}`))
-
-	event := readEvent(t, stream)
-	if event.Type != events.WorkflowFailed {
-		t.Fatalf("event type = %q, want %q", event.Type, events.WorkflowFailed)
-	}
-	if event.WorkflowID != workflowID {
-		t.Errorf("workflowId = %q, want %q", event.WorkflowID, workflowID)
-	}
-	if !strings.Contains(event.Error, "boom") {
-		t.Errorf("error = %q, want it to mention the panic", event.Error)
-	}
-
-	health, err := http.Get(serverURL + "/health")
-	if err != nil {
-		t.Fatalf("GET /health after the panic: %v", err)
-	}
-	health.Body.Close()
-	if health.StatusCode != http.StatusOK {
-		t.Errorf("health status = %d, want %d", health.StatusCode, http.StatusOK)
-	}
-}
-
-type brokenWriter struct {
-	header http.Header
-}
-
-func (w *brokenWriter) Header() http.Header        { return w.header }
-func (w *brokenWriter) WriteHeader(statusCode int) {}
-func (w *brokenWriter) Write([]byte) (int, error) {
-	return 0, errors.New("connection is gone")
-}
-func (w *brokenWriter) FlushError() error { return nil }
-
-func TestEventsStopsWhenWritingFails(t *testing.T) {
-	fake := newFakeBus()
-	mux := handlers.NewMux(t.Context(), fake, newFakeRunner(nil))
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/events", nil)
-
-	done := make(chan struct{})
-	go func() {
-		mux.ServeHTTP(&brokenWriter{header: http.Header{}}, req)
-		close(done)
-	}()
-
-	select {
-	case fake.live <- events.Event{Type: events.Log, Message: "lost"}:
-	case <-time.After(time.Second):
-		t.Fatal("handler never read the live event")
-	}
-
-	waitFor(t, done, "handler kept running after a failed write")
-	select {
-	case <-fake.unsubscribed:
-	default:
-		t.Error("handler returned without unsubscribing")
-	}
-}
-
-func TestBusChannelCloseHandlerReturns(t *testing.T) {
-	// ----- Setup ------ //
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	liveCh := make(chan events.Event)
-	unsubscribedCh := make(chan struct{})
-	b := &fakeBus{
-		history:      []events.Event{},
-		live:         liveCh,
-		unsubscribed: unsubscribedCh,
-	}
-
-	serverURL := newServer(t, ctx, b, newFakeRunner(nil, events.Event{Type: events.WorkflowStarted}))
-	// ----- Setup ------ //
-
-	// ----- FIRST SSE GET ---- //
-	getResponse := getEvents(t, ctx, serverURL, "")
-
-	close(liveCh)
-
-	gotEofCh := make(chan error, 1)
-	go func() {
-		_, err := io.Copy(io.Discard, getResponse.Body)
-		gotEofCh <- err
-	}()
-
-	if err := waitFor(t, gotEofCh, "stream did not end"); err != nil {
-		t.Fatalf("stream ended with error %v", err)
-	}
-}
-
-func TestGetHandlerReadsLastEventID(t *testing.T) {
-	cases := []struct {
-		name   string
-		header string
-		want   string
-	}{
-		{"header set", "1234", "1234"},
-		{"no header", "", ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			// create server
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
-			defer cancel()
-
-			b := newFakeBus()
-			b.lastEventID = "Subscribe not called"
-
-			serverURL := newServer(t, ctx, b, newFakeRunner(nil, events.Event{Type: events.WorkflowStarted}))
-			// create request
-			// fire requset
-			getEvents(t, ctx, serverURL, c.header)
-
-			if b.lastEventID != c.want {
-				t.Fatalf("got %q. expected %q", b.lastEventID, c.want)
-			}
-		})
-	}
-}
-
-func TestGetHandlerGetsNextEventAfterLastEvent(t *testing.T) {
-	// setup
-	// create server
-	b, history := busWithEvents(t, t.Context(), "1", "2", "3", "4", "5")
-
-	serverURL := newServer(t, t.Context(), b, newFakeRunner(nil))
-	// make request with lastEvent ID
-	//
-	cases := []struct {
-		name                         string
-		lastEventID                  string
-		expectedFirstIncomingEventID string
-	}{
-		{
-			name:                         "no last event id",
-			lastEventID:                  "",
-			expectedFirstIncomingEventID: history[0].ID,
-		},
-		{
-			name:                         "first event id",
-			lastEventID:                  history[0].ID,
-			expectedFirstIncomingEventID: history[1].ID,
-		},
-		{
-			name:                         "middle event id",
-			lastEventID:                  history[2].ID,
-			expectedFirstIncomingEventID: history[3].ID,
-		},
-		{
-			name:                         "second to last event id",
-			lastEventID:                  history[3].ID,
-			expectedFirstIncomingEventID: history[4].ID,
-		},
-		{
-			name:                         "unknown event id",
-			lastEventID:                  "not-an-event-id",
-			expectedFirstIncomingEventID: history[0].ID,
-		},
-	}
-
-	// check that events are resumed from lsatevent id
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*1)
-			defer cancel()
-			resp := getEvents(t, ctx, serverURL, c.lastEventID)
-
-			// reads one message - if id is after lastEventID, all good
-			id, _ := readSSEMessage(t, bufio.NewReader(resp.Body))
-
-			if id != c.expectedFirstIncomingEventID {
-				t.Fatalf("got %v. expected %v", id, c.expectedFirstIncomingEventID)
-			}
-		})
-	}
-}
-
-func TestGetHandlerSendsNothingAfterTheLastEvent(t *testing.T) {
-	b, history := busWithEvents(t, t.Context(), "1", "2")
-
-	serverURL := newServer(t, t.Context(), b, newFakeRunner(nil))
-
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-	defer cancel()
-	resp := getEvents(t, ctx, serverURL, history[1].ID)
-
-	// add a deadline and read everything
-	got, err := io.ReadAll(resp.Body)
-
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("got error reading the body %v", err)
-	}
-
-	if len(got) != 0 {
-		t.Fatalf("expected 0. got %v", len(got))
 	}
 }

@@ -460,7 +460,7 @@ func TestBusResumeAfterClearGivesFullHistory(t *testing.T) {
 	}
 }
 
-func TestPublishToFullChannelClosesIt(t *testing.T) {
+func TestSubscriberThatFallsBehindIsCutOff(t *testing.T) {
 	// setup
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*1)
 	defer cancel()
@@ -526,7 +526,7 @@ func TestPublishToFullChannelClosesIt(t *testing.T) {
 
 }
 
-func TestHistoryKeepLast1000Events(t *testing.T) {
+func TestHistoryKeepsOnlyTheNewestEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*1)
 	defer cancel()
 	// setup
@@ -549,7 +549,7 @@ func TestHistoryKeepLast1000Events(t *testing.T) {
 	}
 }
 
-func TestHistoryReplaysFullyWhenIdOfDroppedEventIsUsed(t *testing.T) {
+func TestHistoryReplaysFullyWhenIDOfDroppedEventIsUsed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*1)
 	defer cancel()
 
