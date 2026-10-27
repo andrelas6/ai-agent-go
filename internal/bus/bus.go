@@ -46,7 +46,7 @@ func (b *Bus) Publish(event events.Event) {
 
 func (b *Bus) Subscribe(lastEventID string) (history []events.Event, liveEventCh <-chan events.Event, unsubscribe func()) {
 	eventCh := make(chan events.Event, SubscriberBuffer)
-	// throaway reply channel just to get the history back without data races (publish/subscribe concurrently) - check select below
+	// throwaway reply channel just to get the history back without data races (publish/subscribe concurrently) - check select below
 	replyCh := make(chan []events.Event, 1)
 
 	// order is also important, because a publisher after a subscribe should work for that subscribe (causal consistency)
@@ -109,11 +109,10 @@ func New(ctx context.Context) *Bus {
 			case subscription := <-b.subscribeCh:
 				streams[subscription.liveEventCh] = struct{}{}
 				lastEventIndex := slices.IndexFunc(history, func(e events.Event) bool { return e.ID == subscription.lastEventID })
-				if lastEventIndex != -1 {
-					subscription.replyCh <- slices.Clone(history[lastEventIndex+1:])
-				} else {
-					subscription.replyCh <- slices.Clone(history)
+				if lastEventIndex == -1 && subscription.lastEventID != "" {
+					log.Printf("bus: last event id %q is not in the history, replaying all %d events", subscription.lastEventID, len(history))
 				}
+				subscription.replyCh <- slices.Clone(history[lastEventIndex+1:])
 			case <-b.clearCh:
 				history = make([]events.Event, 0)
 			case <-ctx.Done():

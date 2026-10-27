@@ -63,6 +63,7 @@ func handleEvents(ctx context.Context, bus EventBus) func(w http.ResponseWriter,
 			case event, ok := <-eventStream:
 				// channel closed
 				if !ok {
+					log.Printf("events: bus ended the stream for %s, closing the response so the client reconnects", r.RemoteAddr)
 					return
 				}
 				if err := flushEventData(w, event, rc); err != nil {
