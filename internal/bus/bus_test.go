@@ -21,7 +21,7 @@ func TestSubscriberGetsPublishedEvent(t *testing.T) {
 	defer cancel()
 	b := bus.New(ctx)
 
-	_, live, unsubscribe := b.Subscribe()
+	_, live, unsubscribe := b.Subscribe("")
 	defer unsubscribe()
 
 	b.Publish(events.Event{
@@ -44,8 +44,8 @@ func TestTwoSubscribersSameBusGetsSameEvents(t *testing.T) {
 	defer cancel()
 	b := bus.New(ctx)
 
-	_, r1, u1 := b.Subscribe()
-	_, r2, u2 := b.Subscribe()
+	_, r1, u1 := b.Subscribe("")
+	_, r2, u2 := b.Subscribe("")
 
 	b.Publish(events.Event{Type: events.WorkflowStarted})
 	b.Publish(events.Event{Type: events.WorkflowCompleted})
@@ -79,7 +79,7 @@ func TestLiveEventsArriveInPublishOrder(t *testing.T) {
 	defer cancel()
 	b := bus.New(ctx)
 
-	_, live, unsubscribe := b.Subscribe()
+	_, live, unsubscribe := b.Subscribe("")
 	defer unsubscribe()
 
 	want := []string{"event-1", "event-2", "event-3"}
@@ -107,15 +107,15 @@ func TestEachSubscriberGetsHistoryAsOfItsSubscribe(t *testing.T) {
 	b := bus.New(ctx)
 
 	b.Publish(events.Event{Message: "event-1"})
-	historyA, _, unsubscribeA := b.Subscribe()
+	historyA, _, unsubscribeA := b.Subscribe("")
 	defer unsubscribeA()
 
 	b.Publish(events.Event{Message: "event-2"})
-	historyB, _, unsubscribeB := b.Subscribe()
+	historyB, _, unsubscribeB := b.Subscribe("")
 	defer unsubscribeB()
 
 	b.Publish(events.Event{Message: "event-3"})
-	historyC, _, unsubscribeC := b.Subscribe()
+	historyC, _, unsubscribeC := b.Subscribe("")
 	defer unsubscribeC()
 
 	cases := []struct {
@@ -150,7 +150,7 @@ func TestSubscribeWhilePublishing(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 200 {
-			_, _, unsubscribe := b.Subscribe()
+			_, _, unsubscribe := b.Subscribe("")
 			unsubscribe()
 		}
 	}()
@@ -175,7 +175,7 @@ func TestHistoryAndLiveHoldEachEventOnce(t *testing.T) {
 				b.Publish(events.Event{Message: id})
 			}
 		}()
-		history, live, unsubscribe := b.Subscribe()
+		history, live, unsubscribe := b.Subscribe("")
 		wg.Wait()
 		unsubscribe()
 
@@ -197,9 +197,9 @@ func TestSlowSubscriberDoesNotBlockOthers(t *testing.T) {
 	b := bus.New(ctx)
 	eventCount := bus.SubscriberBuffer + 50
 
-	_, _, unsubscribe := b.Subscribe()
+	_, _, unsubscribe := b.Subscribe("")
 	defer unsubscribe()
-	_, streamB, unsubscribe := b.Subscribe()
+	_, streamB, unsubscribe := b.Subscribe("")
 	defer unsubscribe()
 	missingEventStream := make(chan string, 1)
 	eventsWrongOrderStream := make(chan string, 1)
@@ -269,7 +269,7 @@ func TestClearLeavesNewSubscriberWithNoHistory(t *testing.T) {
 	b.Publish(events.Event{Message: "event-2"})
 	b.Clear()
 
-	history, _, unsubscribe := b.Subscribe()
+	history, _, unsubscribe := b.Subscribe("")
 	defer unsubscribe()
 
 	if len(history) != 0 {
@@ -286,7 +286,7 @@ func TestEventsAfterClearStartANewHistory(t *testing.T) {
 	b.Clear()
 	b.Publish(events.Event{Message: "after-clear"})
 
-	history, _, unsubscribe := b.Subscribe()
+	history, _, unsubscribe := b.Subscribe("")
 	defer unsubscribe()
 
 	if got, want := eventMessages(history), []string{"after-clear"}; !slices.Equal(got, want) {
@@ -327,7 +327,7 @@ func TestPublishStampsIDAndTimestamp(t *testing.T) {
 	defer cancel()
 	b := bus.New(ctx)
 
-	_, live, unsubscribe := b.Subscribe()
+	_, live, unsubscribe := b.Subscribe("")
 	defer unsubscribe()
 
 	before := time.Now().UnixMilli()
@@ -340,7 +340,7 @@ func TestPublishStampsIDAndTimestamp(t *testing.T) {
 		t.Fatal("no live event before the timeout")
 	}
 
-	history, _, unsubscribeLate := b.Subscribe()
+	history, _, unsubscribeLate := b.Subscribe("")
 	defer unsubscribeLate()
 	if len(history) != 1 {
 		t.Fatalf("history has %d events, want 1", len(history))
@@ -355,6 +355,90 @@ func TestPublishStampsIDAndTimestamp(t *testing.T) {
 	}
 	if fromHistory.ID != fromLive.ID || fromHistory.TS != fromLive.TS {
 		t.Errorf("history has ID %q and TS %d, live has ID %q and TS %d; want the same stamp", fromHistory.ID, fromHistory.TS, fromLive.ID, fromLive.TS)
+	}
+}
+
+func TestBusResumesAfterLastID(t *testing.T) {
+	// setup
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+
+	b.Publish(events.Event{Message: "1"})
+	b.Publish(events.Event{Message: "2"})
+	b.Publish(events.Event{Message: "3"})
+	b.Publish(events.Event{Message: "4"})
+	b.Publish(events.Event{Message: "5"})
+
+	history, _, unsubscribe := b.Subscribe("")
+	unsubscribe()
+	cases := []struct {
+		name        string
+		lastEventID string
+		expected    []string
+	}{
+		{
+			name:        "no last event id",
+			lastEventID: "",
+			expected:    []string{"1", "2", "3", "4", "5"},
+		},
+		{
+			name:        "last event id",
+			lastEventID: history[4].ID,
+			expected:    []string{},
+		},
+		{
+			name:        "first event id",
+			lastEventID: history[0].ID,
+			expected:    []string{"2", "3", "4", "5"},
+		},
+		{
+			name:        "middle event id",
+			lastEventID: history[2].ID,
+			expected:    []string{"4", "5"},
+		},
+		{
+			name:        "unknown event id",
+			lastEventID: "not-an-event-id",
+			expected:    []string{"1", "2", "3", "4", "5"},
+		},
+	}
+
+	// execute
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			history, _, unsubscribe := b.Subscribe(c.lastEventID)
+			defer unsubscribe()
+
+			// assert
+			if got, want := eventMessages(history), c.expected; !slices.Equal(got, want) {
+				t.Errorf("got %v - expected %v", got, want)
+			}
+
+		})
+	}
+
+}
+
+func TestBusResumeAfterClearGivesFullHistory(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+
+	b.Publish(events.Event{Message: "before-clear"})
+	history, _, unsubscribe := b.Subscribe("")
+	unsubscribe()
+	seenBeforeClear := history[0].ID
+
+	b.Clear()
+	b.Publish(events.Event{Message: "after-clear-1"})
+	b.Publish(events.Event{Message: "after-clear-2"})
+
+	history, _, unsubscribe = b.Subscribe(seenBeforeClear)
+	defer unsubscribe()
+
+	if got, want := eventMessages(history), []string{"after-clear-1", "after-clear-2"}; !slices.Equal(got, want) {
+		t.Errorf("history = %v, want %v", got, want)
 	}
 }
 
