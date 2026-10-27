@@ -11,6 +11,7 @@ import (
 )
 
 const SubscriberBuffer = 256
+const HistoryLimit = 1000
 
 type subscription struct {
 	liveEventCh chan events.Event
@@ -85,10 +86,11 @@ func New(ctx context.Context) *Bus {
 			case event := <-b.publishCh:
 				event.ID = uuid.NewString()
 				event.TS = time.Now().UnixMilli()
+				if len(history) == HistoryLimit {
+					history = history[1:]
+				}
 				history = append(history, event)
 				for eventStream := range streams {
-					// if buffer is full, drop events
-					// TODO: disconnect the handler assigned to that stream when the eventStream is full so that they can reconnect
 					select {
 					case eventStream <- event:
 					// if buffer is full, gets here
