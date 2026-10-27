@@ -15,7 +15,8 @@ type subscription struct {
 	liveEventCh chan events.Event
 	// to avoid data races in the history slice, the writing/reading of the history slice must be done in the same select
 	// the reply channel is there just to make sure that works
-	replyCh chan []events.Event
+	replyCh     chan []events.Event
+	lastEventID string
 }
 
 type Bus struct {
@@ -43,14 +44,14 @@ func (b *Bus) Publish(event events.Event) {
 
 func (b *Bus) Subscribe(lastEventID string) (history []events.Event, liveEventCh <-chan events.Event, unsubscribe func()) {
 	eventCh := make(chan events.Event, SubscriberBuffer)
-	// throaway reply channel just to get the history back without data races (publish/subscribe concurrently)
+	// throaway reply channel just to get the history back without data races (publish/subscribe concurrently) - check select below
 	replyCh := make(chan []events.Event, 1)
 
 	// order is also important, because a publisher after a subscribe should work for that subscribe (causal consistency)
 	select {
 	case <-b.doneCh:
 		return nil, nil, func() {}
-	case b.subscribeCh <- subscription{liveEventCh: eventCh, replyCh: replyCh}:
+	case b.subscribeCh <- subscription{liveEventCh: eventCh, replyCh: replyCh, lastEventID: lastEventID}:
 		return <-replyCh,
 			eventCh, func() {
 				select {
@@ -94,7 +95,12 @@ func New(ctx context.Context) *Bus {
 				}
 			case subscription := <-b.subscribeCh:
 				streams[subscription.liveEventCh] = struct{}{}
-				subscription.replyCh <- slices.Clone(history)
+				lastEventIndex := slices.IndexFunc(history, func(e events.Event) bool { return e.ID == subscription.lastEventID })
+				if lastEventIndex != -1 {
+					subscription.replyCh <- slices.Clone(history[lastEventIndex+1:])
+				} else {
+					subscription.replyCh <- slices.Clone(history)
+				}
 			case <-b.clearCh:
 				history = make([]events.Event, 0)
 			case <-ctx.Done():

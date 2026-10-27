@@ -358,6 +358,96 @@ func TestPublishStampsIDAndTimestamp(t *testing.T) {
 	}
 }
 
+func TestBusResumesAfterLastID(t *testing.T) {
+	// given id -> history received is after that id
+	// setup -> create bus, add events, grab specific id
+	// assert -> subscribe
+	// test -> hsitory shows events after id
+	//
+
+	// setup
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+
+	b.Publish(events.Event{Message: "1"})
+	b.Publish(events.Event{Message: "2"})
+	b.Publish(events.Event{Message: "3"})
+	b.Publish(events.Event{Message: "4"})
+	b.Publish(events.Event{Message: "5"})
+
+	history, _, unsubscribe := b.Subscribe("")
+	unsubscribe()
+	cases := []struct {
+		name        string
+		lastEventID string
+		expected    []string
+	}{
+		{
+			name:        "no last event id",
+			lastEventID: "",
+			expected:    []string{"1", "2", "3", "4", "5"},
+		},
+		{
+			name:        "last event id",
+			lastEventID: history[4].ID,
+			expected:    []string{},
+		},
+		{
+			name:        "first event id",
+			lastEventID: history[0].ID,
+			expected:    []string{"2", "3", "4", "5"},
+		},
+		{
+			name:        "middle event id",
+			lastEventID: history[2].ID,
+			expected:    []string{"4", "5"},
+		},
+		{
+			name:        "unknown event id",
+			lastEventID: "not-an-event-id",
+			expected:    []string{"1", "2", "3", "4", "5"},
+		},
+	}
+
+	// execute
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			history, _, unsubscribe := b.Subscribe(c.lastEventID)
+			defer unsubscribe()
+
+			// assert
+			if got, want := eventMessages(history), c.expected; !slices.Equal(got, want) {
+				t.Errorf("got %v - expected %v", got, want)
+			}
+
+		})
+	}
+
+}
+
+func TestBusResumeAfterClearGivesFullHistory(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	b := bus.New(ctx)
+
+	b.Publish(events.Event{Message: "before-clear"})
+	history, _, unsubscribe := b.Subscribe("")
+	unsubscribe()
+	seenBeforeClear := history[0].ID
+
+	b.Clear()
+	b.Publish(events.Event{Message: "after-clear-1"})
+	b.Publish(events.Event{Message: "after-clear-2"})
+
+	history, _, unsubscribe = b.Subscribe(seenBeforeClear)
+	defer unsubscribe()
+
+	if got, want := eventMessages(history), []string{"after-clear-1", "after-clear-2"}; !slices.Equal(got, want) {
+		t.Errorf("history = %v, want %v", got, want)
+	}
+}
+
 func eventMessages(history []events.Event) []string {
 	messages := make([]string, 0, len(history))
 	for _, e := range history {

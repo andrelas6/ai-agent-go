@@ -79,25 +79,7 @@ func TestGetStreamingEvents(t *testing.T) {
 	// ----- FIRST SSE GET ---- //
 
 	// ----- POST MESSAGE ---- //
-	data := struct {
-		Input string `json:"input"`
-		Mode  string `json:"mode"`
-	}{
-		Input: "test input",
-		Mode:  "test mode",
-	}
-	body, err := json.Marshal(data)
-	if err != nil {
-		t.Fatal("error enconding body")
-	}
-	req, err = http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/api/tasks", bytes.NewReader(body))
-
-	req.Header.Set("Content-Type", "application/json")
-
-	postResponse, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("http post %v", err)
-	}
+	postResponse := postTask(ctx, server.URL+"/api/tasks", t)
 
 	if postResponse.StatusCode != http.StatusAccepted {
 		t.Errorf("status = %d, want %d", postResponse.StatusCode, http.StatusAccepted)
@@ -130,8 +112,6 @@ func TestGetStreamingEvents(t *testing.T) {
 		t.Errorf("runner input = %q, want %q", call.input, "test input")
 	}
 
-	// ----- POST MESSAGE ---- //
-
 	// ----- SECOND SSE GET ---- //
 	var eventData struct {
 		Type       string `json:"type"`
@@ -158,6 +138,30 @@ func TestGetStreamingEvents(t *testing.T) {
 	if eventData.WorkflowId != got.WorkflowId {
 		t.Fatalf("got %v. expected %v", eventData.WorkflowId, got.WorkflowId)
 	}
+}
+
+func postTask(ctx context.Context, apiURL string, t *testing.T) *http.Response {
+	data := struct {
+		Input string `json:"input"`
+		Mode  string `json:"mode"`
+	}{
+		Input: "test input",
+		Mode:  "test mode",
+	}
+	body, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal("error enconding body")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(body))
+
+	req.Header.Set("Content-Type", "application/json")
+
+	postResponse, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("http post %v", err)
+	}
+
+	return postResponse
 }
 
 func TestRunnerRunsOnTheServerContext(t *testing.T) {
@@ -693,5 +697,127 @@ func TestGetHandlerReadsLastEventID(t *testing.T) {
 				t.Fatalf("got %q. expected %q", b.lastEventID, c.want)
 			}
 		})
+	}
+}
+
+func TestGetHandlerGetsNextEventAfterLastEvent(t *testing.T) {
+	// setup
+	// create server
+	b := bus.New(t.Context())
+	b.Publish(events.Event{Message: "1"})
+	b.Publish(events.Event{Message: "2"})
+	b.Publish(events.Event{Message: "3"})
+	b.Publish(events.Event{Message: "4"})
+	b.Publish(events.Event{Message: "5"})
+
+	history, _, unsubscribe := b.Subscribe("")
+	unsubscribe()
+
+	server := httptest.NewServer(handlers.NewMux(t.Context(), b, newFakeRunner(nil)))
+	defer server.Close()
+	// make request with lastEvent ID
+	//
+	cases := []struct {
+		name                         string
+		lastEventID                  string
+		expectedFirstIncomingEventID string
+	}{
+		{
+			name:                         "no last event id",
+			lastEventID:                  "",
+			expectedFirstIncomingEventID: history[0].ID,
+		},
+		{
+			name:                         "first event id",
+			lastEventID:                  history[0].ID,
+			expectedFirstIncomingEventID: history[1].ID,
+		},
+		{
+			name:                         "middle event id",
+			lastEventID:                  history[2].ID,
+			expectedFirstIncomingEventID: history[3].ID,
+		},
+		{
+			name:                         "second to last event id",
+			lastEventID:                  history[3].ID,
+			expectedFirstIncomingEventID: history[4].ID,
+		},
+		{
+			name:                         "unknown event id",
+			lastEventID:                  "not-an-event-id",
+			expectedFirstIncomingEventID: history[0].ID,
+		},
+	}
+
+	// check that events are resumed from lsatevent id
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*1)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/events", nil)
+			if err != nil {
+				t.Fatalf("error creating request %v", err)
+			}
+
+			req.Header.Set("Last-Event-ID", c.lastEventID)
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("response error %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status code %v not %v", resp.StatusCode, http.StatusOK)
+			}
+
+			// reads one message - if id is after lastEventID, all good
+			id, _ := readSSEMessage(t, bufio.NewReader(resp.Body))
+
+			if id != c.expectedFirstIncomingEventID {
+				t.Fatalf("got %v. expected %v", id, c.expectedFirstIncomingEventID)
+			}
+		})
+	}
+}
+
+func TestGetHandlerSendsNothingAfterTheLastEvent(t *testing.T) {
+	b := bus.New(t.Context())
+	b.Publish(events.Event{Message: "1"})
+	b.Publish(events.Event{Message: "2"})
+
+	history, _, unsubscribe := b.Subscribe("")
+	unsubscribe()
+
+	server := httptest.NewServer(handlers.NewMux(t.Context(), b, newFakeRunner(nil)))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatalf("error creating request %v", err)
+	}
+	req.Header.Set("Last-Event-ID", history[1].ID)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("response error %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status code %v not %v", resp.StatusCode, http.StatusOK)
+	}
+
+	// add a deadline and read everything
+	got, err := io.ReadAll(resp.Body)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got error reading the body %v", err)
+	}
+
+	if len(got) != 0 {
+		t.Fatalf("expected 0. got %v", len(got))
 	}
 }
