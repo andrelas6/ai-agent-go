@@ -5,7 +5,6 @@ import (
 	"andrelas6/ai-agent-go/internal/bus"
 	"andrelas6/ai-agent-go/internal/events"
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -46,28 +45,11 @@ func TestGetStreamingEvents(t *testing.T) {
 	calls := make(chan runCall, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	server := httptest.NewServer(handlers.NewMux(ctx, bus.New(ctx), newFakeRunner(calls, events.Event{Type: events.WorkflowStarted})))
-	defer server.Close()
+	serverURL := newServer(t, ctx, bus.New(ctx), newFakeRunner(calls, events.Event{Type: events.WorkflowStarted}))
 	// ----- Setup ------ //
 
 	// ----- FIRST SSE GET ---- //
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/events", nil)
-
-	if err != nil {
-		t.Fatalf("new request with context %v", err)
-	}
-
-	getResponse, err := http.DefaultClient.Do(req)
-
-	if err != nil {
-		t.Fatalf("GET /api/events %v", err)
-	}
-
-	defer getResponse.Body.Close()
-
-	if getResponse.StatusCode != http.StatusOK {
-		t.Fatalf("expected %v. got %v", http.StatusOK, getResponse.StatusCode)
-	}
+	getResponse := getEvents(t, ctx, serverURL, "")
 
 	if got := getResponse.Header.Get("Content-Type"); got != "text/event-stream" {
 		t.Fatalf("expected text/event-stream. got %v", got)
@@ -79,7 +61,7 @@ func TestGetStreamingEvents(t *testing.T) {
 	// ----- FIRST SSE GET ---- //
 
 	// ----- POST MESSAGE ---- //
-	postResponse := postTask(ctx, server.URL+"/api/tasks", t)
+	postResponse := postTask(t, ctx, serverURL, `{"input":"test input","mode":"test mode"}`)
 
 	if postResponse.StatusCode != http.StatusAccepted {
 		t.Errorf("status = %d, want %d", postResponse.StatusCode, http.StatusAccepted)
@@ -88,25 +70,14 @@ func TestGetStreamingEvents(t *testing.T) {
 		t.Errorf("Content-Type = %q, want %q", got, "application/json")
 	}
 
-	var got struct {
-		WorkflowId string `json:"workflowId"`
-	}
-	if err := json.NewDecoder(postResponse.Body).Decode(&got); err != nil {
-		t.Errorf("error decoding %v", err)
+	workflowID := decodeWorkflowID(t, postResponse)
+	if workflowID == "" {
+		t.Error("workflow id is empty")
 	}
 
-	if got.WorkflowId == "" {
-		t.Error("workflow id is empty", err)
-	}
-
-	var call runCall
-	select {
-	case call = <-calls:
-	case <-ctx.Done():
-		t.Fatal("runner was not called before the timeout")
-	}
-	if got.WorkflowId != call.workflowID {
-		t.Errorf("%s and %s should have been equal.", got.WorkflowId, call.workflowID)
+	call := waitFor(t, calls, "runner was not called")
+	if workflowID != call.workflowID {
+		t.Errorf("%s and %s should have been equal.", workflowID, call.workflowID)
 	}
 	if call.input != "test input" {
 		t.Errorf("runner input = %q, want %q", call.input, "test input")
@@ -124,7 +95,7 @@ func TestGetStreamingEvents(t *testing.T) {
 		t.Fatal("id is blank")
 	}
 
-	err = json.Unmarshal([]byte(sseDataMessage), &eventData)
+	err := json.Unmarshal([]byte(sseDataMessage), &eventData)
 
 	if err != nil {
 		// QUESTION: why %q here?
@@ -135,57 +106,23 @@ func TestGetStreamingEvents(t *testing.T) {
 		t.Fatalf("got %v. expected %v", eventData.Type, events.WorkflowStarted)
 	}
 
-	if eventData.WorkflowId != got.WorkflowId {
-		t.Fatalf("got %v. expected %v", eventData.WorkflowId, got.WorkflowId)
+	if eventData.WorkflowId != workflowID {
+		t.Fatalf("got %v. expected %v", eventData.WorkflowId, workflowID)
 	}
-}
-
-func postTask(ctx context.Context, apiURL string, t *testing.T) *http.Response {
-	data := struct {
-		Input string `json:"input"`
-		Mode  string `json:"mode"`
-	}{
-		Input: "test input",
-		Mode:  "test mode",
-	}
-	body, err := json.Marshal(data)
-	if err != nil {
-		t.Fatal("error enconding body")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(body))
-
-	req.Header.Set("Content-Type", "application/json")
-
-	postResponse, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("http post %v", err)
-	}
-
-	return postResponse
 }
 
 func TestRunnerRunsOnTheServerContext(t *testing.T) {
 	calls := make(chan runCall, 1)
 	serverCtx, shutdown := context.WithCancel(t.Context())
 	defer shutdown()
-	server := httptest.NewServer(handlers.NewMux(serverCtx, bus.New(serverCtx), newFakeRunner(calls)))
-	defer server.Close()
+	serverURL := newServer(t, serverCtx, bus.New(serverCtx), newFakeRunner(calls))
 
-	res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(`{"input":"hello"}`))
-	if err != nil {
-		t.Fatalf("POST /api/tasks: %v", err)
-	}
-	res.Body.Close()
+	res := postTask(t, t.Context(), serverURL, `{"input":"hello"}`)
 	if res.StatusCode != http.StatusAccepted {
 		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusAccepted)
 	}
 
-	var call runCall
-	select {
-	case call = <-calls:
-	case <-time.After(time.Second):
-		t.Fatal("runner was not called within 1s")
-	}
+	call := waitFor(t, calls, "runner was not called")
 
 	if err := call.ctx.Err(); err != nil {
 		t.Fatalf("runner ctx ended once the request finished: %v", err)
@@ -193,22 +130,13 @@ func TestRunnerRunsOnTheServerContext(t *testing.T) {
 
 	shutdown()
 
-	select {
-	case <-call.ctx.Done():
-	case <-time.After(time.Second):
-		t.Fatal("runner ctx was not cancelled within 1s of the server shutting down")
-	}
+	waitFor(t, call.ctx.Done(), "runner ctx was not cancelled after the server shut down")
 }
 
 func TestPostClearReturnsOK(t *testing.T) {
-	server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(nil)))
-	defer server.Close()
+	serverURL := newServer(t, t.Context(), bus.New(t.Context()), newFakeRunner(nil))
 
-	res, err := http.Post(server.URL+"/api/clear", "application/json", nil)
-	if err != nil {
-		t.Fatalf("POST /api/clear: %v", err)
-	}
-	defer res.Body.Close()
+	res := post(t, t.Context(), serverURL+"/api/clear", "")
 
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", res.StatusCode, http.StatusOK)
@@ -222,10 +150,9 @@ func TestPostClearReturnsOK(t *testing.T) {
 }
 
 func TestGetTasksIsNotAllowed(t *testing.T) {
-	server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(nil)))
-	defer server.Close()
+	serverURL := newServer(t, t.Context(), bus.New(t.Context()), newFakeRunner(nil))
 
-	res, err := http.Get(server.URL + "/api/tasks")
+	res, err := http.Get(serverURL + "/api/tasks")
 	if err != nil {
 		t.Fatalf("GET /api/tasks: %v", err)
 	}
@@ -263,52 +190,26 @@ func (f *fakeBus) Clear() {}
 
 func TestEventsUnsubscribesWhenClientDisconnects(t *testing.T) {
 	fake := newFakeBus()
-	server := httptest.NewServer(handlers.NewMux(t.Context(), fake, newFakeRunner(nil)))
-	defer server.Close()
+	serverURL := newServer(t, t.Context(), fake, newFakeRunner(nil))
 
 	reqCtx, disconnect := context.WithCancel(t.Context())
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, server.URL+"/api/events", nil)
-	if err != nil {
-		t.Fatalf("new request: %v", err)
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /api/events: %v", err)
-	}
-	defer res.Body.Close()
+	getEvents(t, reqCtx, serverURL, "")
 
 	disconnect()
 
-	select {
-	case <-fake.unsubscribed:
-	case <-time.After(time.Second):
-		t.Fatal("handler did not unsubscribe within 1s of the client disconnecting")
-	}
+	waitFor(t, fake.unsubscribed, "handler did not unsubscribe after the client disconnected")
 }
 
 func TestEventsUnsubscribesWhenServerShutsDown(t *testing.T) {
 	fake := newFakeBus()
 	serverCtx, shutdown := context.WithCancel(t.Context())
-	server := httptest.NewServer(handlers.NewMux(serverCtx, fake, newFakeRunner(nil)))
-	defer server.Close()
+	serverURL := newServer(t, serverCtx, fake, newFakeRunner(nil))
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/events", nil)
-	if err != nil {
-		t.Fatalf("new request: %v", err)
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /api/events: %v", err)
-	}
-	defer res.Body.Close()
+	getEvents(t, t.Context(), serverURL, "")
 
 	shutdown()
 
-	select {
-	case <-fake.unsubscribed:
-	case <-time.After(time.Second):
-		t.Fatal("handler did not unsubscribe within 1s of the server shutting down")
-	}
+	waitFor(t, fake.unsubscribed, "handler did not unsubscribe after the server shut down")
 }
 
 func TestRunnerIsNotCalledOn400(t *testing.T) {
@@ -324,14 +225,9 @@ func TestRunnerIsNotCalledOn400(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			calls := make(chan runCall, 1)
-			server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(calls)))
-			defer server.Close()
+			serverURL := newServer(t, t.Context(), bus.New(t.Context()), newFakeRunner(calls))
 
-			res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(c.body))
-			if err != nil {
-				t.Fatalf("POST /api/tasks %v", err)
-			}
-			defer res.Body.Close()
+			res := postTask(t, t.Context(), serverURL, c.body)
 
 			if res.StatusCode != http.StatusBadRequest {
 				t.Errorf("status = %d, want %d", res.StatusCode, http.StatusBadRequest)
@@ -349,13 +245,10 @@ func TestRunnerIsNotCalledOn400(t *testing.T) {
 func TestEventsSendsHistoryBeforeLiveEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	b := bus.New(ctx)
-	server := httptest.NewServer(handlers.NewMux(ctx, b, newFakeRunner(nil)))
-	t.Cleanup(server.Close)
+	b, _ := busWithEvents(t, ctx, "from-history")
+	serverURL := newServer(t, ctx, b, newFakeRunner(nil))
 
-	b.Publish(events.Event{Type: events.Log, Message: "from-history"})
-
-	stream := openEventStream(t, ctx, server.URL)
+	stream := openEventStream(t, ctx, serverURL)
 	b.Publish(events.Event{Type: events.Log, Message: "live"})
 
 	for _, want := range []string{"from-history", "live"} {
@@ -368,19 +261,12 @@ func TestEventsSendsHistoryBeforeLiveEvents(t *testing.T) {
 func TestPostClearEmptiesTheHistory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	b := bus.New(ctx)
-	server := httptest.NewServer(handlers.NewMux(ctx, b, newFakeRunner(nil)))
-	t.Cleanup(server.Close)
+	b, _ := busWithEvents(t, ctx, "before-clear")
+	serverURL := newServer(t, ctx, b, newFakeRunner(nil))
 
-	b.Publish(events.Event{Type: events.Log, Message: "before-clear"})
+	post(t, ctx, serverURL+"/api/clear", "")
 
-	res, err := http.Post(server.URL+"/api/clear", "application/json", nil)
-	if err != nil {
-		t.Fatalf("POST /api/clear: %v", err)
-	}
-	res.Body.Close()
-
-	stream := openEventStream(t, ctx, server.URL)
+	stream := openEventStream(t, ctx, serverURL)
 	b.Publish(events.Event{Type: events.Log, Message: "after-clear"})
 
 	if got := readEvent(t, stream).Message; got != "after-clear" {
@@ -389,31 +275,19 @@ func TestPostClearEmptiesTheHistory(t *testing.T) {
 }
 
 func TestPostTasksReturnsAUUIDWorkflowID(t *testing.T) {
-	server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(nil)))
-	defer server.Close()
+	serverURL := newServer(t, t.Context(), bus.New(t.Context()), newFakeRunner(nil))
 
-	res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(`{"input":"hello"}`))
-	if err != nil {
-		t.Fatalf("POST /api/tasks: %v", err)
-	}
-	defer res.Body.Close()
+	workflowID := decodeWorkflowID(t, postTask(t, t.Context(), serverURL, `{"input":"hello"}`))
 
-	var body struct {
-		WorkflowID string `json:"workflowId"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if _, err := uuid.Parse(body.WorkflowID); err != nil {
-		t.Errorf("workflowId %q is not a UUID: %v", body.WorkflowID, err)
+	if _, err := uuid.Parse(workflowID); err != nil {
+		t.Errorf("workflowId %q is not a UUID: %v", workflowID, err)
 	}
 }
 
 func TestHealthReturnsOK(t *testing.T) {
-	server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(nil)))
-	defer server.Close()
+	serverURL := newServer(t, t.Context(), bus.New(t.Context()), newFakeRunner(nil))
 
-	res, err := http.Get(server.URL + "/health")
+	res, err := http.Get(serverURL + "/health")
 	if err != nil {
 		t.Fatalf("GET /health: %v", err)
 	}
@@ -428,8 +302,7 @@ func TestHealthReturnsOK(t *testing.T) {
 }
 
 func TestOldRoutesAreGone(t *testing.T) {
-	server := httptest.NewServer(handlers.NewMux(t.Context(), bus.New(t.Context()), newFakeRunner(nil)))
-	defer server.Close()
+	serverURL := newServer(t, t.Context(), bus.New(t.Context()), newFakeRunner(nil))
 
 	cases := []struct {
 		method string
@@ -440,7 +313,7 @@ func TestOldRoutesAreGone(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.method+" "+c.path, func(t *testing.T) {
-			req, err := http.NewRequestWithContext(t.Context(), c.method, server.URL+c.path, strings.NewReader(`{"message":"hi"}`))
+			req, err := http.NewRequestWithContext(t.Context(), c.method, serverURL+c.path, strings.NewReader(`{"message":"hi"}`))
 			if err != nil {
 				t.Fatalf("new request: %v", err)
 			}
@@ -457,18 +330,91 @@ func TestOldRoutesAreGone(t *testing.T) {
 	}
 }
 
-func openEventStream(t *testing.T, ctx context.Context, serverURL string) *bufio.Reader {
+func newServer(t *testing.T, ctx context.Context, b handlers.EventBus, run handlers.Runner) string {
+	t.Helper()
+	server := httptest.NewServer(handlers.NewMux(ctx, b, run))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+func getEvents(t *testing.T, ctx context.Context, serverURL, lastEventID string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serverURL+"/api/events", nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
+	if lastEventID != "" {
+		req.Header.Set("Last-Event-ID", lastEventID)
+	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /api/events: %v", err)
 	}
+	// needs to close the response otherwise it stays open
 	t.Cleanup(func() { res.Body.Close() })
-	return bufio.NewReader(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/events status = %d, want %d", res.StatusCode, http.StatusOK)
+	}
+	return res
+}
+
+func openEventStream(t *testing.T, ctx context.Context, serverURL string) *bufio.Reader {
+	t.Helper()
+	return bufio.NewReader(getEvents(t, ctx, serverURL, "").Body)
+}
+
+func post(t *testing.T, ctx context.Context, url, body string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	t.Cleanup(func() { res.Body.Close() })
+	return res
+}
+
+func postTask(t *testing.T, ctx context.Context, serverURL, body string) *http.Response {
+	t.Helper()
+	return post(t, ctx, serverURL+"/api/tasks", body)
+}
+
+func decodeWorkflowID(t *testing.T, res *http.Response) string {
+	t.Helper()
+	var body struct {
+		WorkflowID string `json:"workflowId"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	return body.WorkflowID
+}
+
+func busWithEvents(t *testing.T, ctx context.Context, messages ...string) (*bus.Bus, []events.Event) {
+	t.Helper()
+	b := bus.New(ctx)
+	for _, m := range messages {
+		b.Publish(events.Event{Type: events.Log, Message: m})
+	}
+	history, _, unsubscribe := b.Subscribe("")
+	unsubscribe()
+	return b, history
+}
+
+func waitFor[T any](t *testing.T, ch <-chan T, what string) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(time.Second):
+		t.Fatalf("%s within 1s", what)
+		var zero T
+		return zero
+	}
 }
 
 func readEvent(t *testing.T, stream *bufio.Reader) events.Event {
@@ -517,39 +463,27 @@ func readSSEMessage(t *testing.T, r *bufio.Reader) (id, data string) {
 func TestRunnerPanicBecomesWorkflowFailed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	b := bus.New(ctx)
 	panickingRunner := func(ctx context.Context, workflowID string, input string, emit func(events.Event)) {
 		panic("boom")
 	}
-	server := httptest.NewServer(handlers.NewMux(ctx, b, panickingRunner))
-	t.Cleanup(server.Close)
+	serverURL := newServer(t, ctx, bus.New(ctx), panickingRunner)
 
-	stream := openEventStream(t, ctx, server.URL)
+	stream := openEventStream(t, ctx, serverURL)
 
-	res, err := http.Post(server.URL+"/api/tasks", "application/json", strings.NewReader(`{"input":"hello"}`))
-	if err != nil {
-		t.Fatalf("POST /api/tasks: %v", err)
-	}
-	var body struct {
-		WorkflowID string `json:"workflowId"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	res.Body.Close()
+	workflowID := decodeWorkflowID(t, postTask(t, ctx, serverURL, `{"input":"hello"}`))
 
 	event := readEvent(t, stream)
 	if event.Type != events.WorkflowFailed {
 		t.Fatalf("event type = %q, want %q", event.Type, events.WorkflowFailed)
 	}
-	if event.WorkflowID != body.WorkflowID {
-		t.Errorf("workflowId = %q, want %q", event.WorkflowID, body.WorkflowID)
+	if event.WorkflowID != workflowID {
+		t.Errorf("workflowId = %q, want %q", event.WorkflowID, workflowID)
 	}
 	if !strings.Contains(event.Error, "boom") {
 		t.Errorf("error = %q, want it to mention the panic", event.Error)
 	}
 
-	health, err := http.Get(server.URL + "/health")
+	health, err := http.Get(serverURL + "/health")
 	if err != nil {
 		t.Fatalf("GET /health after the panic: %v", err)
 	}
@@ -587,11 +521,7 @@ func TestEventsStopsWhenWritingFails(t *testing.T) {
 		t.Fatal("handler never read the live event")
 	}
 
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("handler kept running after a failed write")
-	}
+	waitFor(t, done, "handler kept running after a failed write")
 	select {
 	case <-fake.unsubscribed:
 	default:
@@ -611,21 +541,11 @@ func TestBusChannelCloseHandlerReturns(t *testing.T) {
 		unsubscribed: unsubscribedCh,
 	}
 
-	server := httptest.NewServer(handlers.NewMux(ctx, b, newFakeRunner(nil, events.Event{Type: events.WorkflowStarted})))
-	defer server.Close()
+	serverURL := newServer(t, ctx, b, newFakeRunner(nil, events.Event{Type: events.WorkflowStarted}))
 	// ----- Setup ------ //
 
 	// ----- FIRST SSE GET ---- //
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/events", nil)
-
-	if err != nil {
-		t.Fatalf("new request with context %v", err)
-	}
-
-	getResponse, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /api/events %v", err)
-	}
+	getResponse := getEvents(t, ctx, serverURL, "")
 
 	close(liveCh)
 
@@ -635,19 +555,8 @@ func TestBusChannelCloseHandlerReturns(t *testing.T) {
 		gotEofCh <- err
 	}()
 
-	defer getResponse.Body.Close()
-
-	if getResponse.StatusCode != http.StatusOK {
-		t.Fatalf("got %v. expected %v", getResponse.StatusCode, http.StatusOK)
-	}
-
-	select {
-	case err := <-gotEofCh:
-		if err != nil {
-			t.Fatalf("stream ended with error %v", err)
-		}
-	case <-time.After(time.Second * 1):
-		t.Fatalf("timeout 1s")
+	if err := waitFor(t, gotEofCh, "stream did not end"); err != nil {
+		t.Fatalf("stream ended with error %v", err)
 	}
 }
 
@@ -669,29 +578,10 @@ func TestGetHandlerReadsLastEventID(t *testing.T) {
 			b := newFakeBus()
 			b.lastEventID = "Subscribe not called"
 
-			server := httptest.NewServer(handlers.NewMux(ctx, b, newFakeRunner(nil, events.Event{Type: events.WorkflowStarted})))
-			defer server.Close()
+			serverURL := newServer(t, ctx, b, newFakeRunner(nil, events.Event{Type: events.WorkflowStarted}))
 			// create request
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/events", nil)
-			if err != nil {
-				t.Fatalf("got error creating request %v", err)
-			}
-			if c.header != "" {
-				req.Header.Set("Last-Event-ID", c.header)
-			}
-
 			// fire requset
-			resp, err := http.DefaultClient.Do(req)
-			// needs to close the response otherwise it stays open
-			if err != nil {
-				t.Fatalf("got error making the request %v", err)
-			}
-
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("got %v. expected %v", resp.StatusCode, http.StatusOK)
-			}
+			getEvents(t, ctx, serverURL, c.header)
 
 			if b.lastEventID != c.want {
 				t.Fatalf("got %q. expected %q", b.lastEventID, c.want)
@@ -703,18 +593,9 @@ func TestGetHandlerReadsLastEventID(t *testing.T) {
 func TestGetHandlerGetsNextEventAfterLastEvent(t *testing.T) {
 	// setup
 	// create server
-	b := bus.New(t.Context())
-	b.Publish(events.Event{Message: "1"})
-	b.Publish(events.Event{Message: "2"})
-	b.Publish(events.Event{Message: "3"})
-	b.Publish(events.Event{Message: "4"})
-	b.Publish(events.Event{Message: "5"})
+	b, history := busWithEvents(t, t.Context(), "1", "2", "3", "4", "5")
 
-	history, _, unsubscribe := b.Subscribe("")
-	unsubscribe()
-
-	server := httptest.NewServer(handlers.NewMux(t.Context(), b, newFakeRunner(nil)))
-	defer server.Close()
+	serverURL := newServer(t, t.Context(), b, newFakeRunner(nil))
 	// make request with lastEvent ID
 	//
 	cases := []struct {
@@ -754,22 +635,7 @@ func TestGetHandlerGetsNextEventAfterLastEvent(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*1)
 			defer cancel()
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/events", nil)
-			if err != nil {
-				t.Fatalf("error creating request %v", err)
-			}
-
-			req.Header.Set("Last-Event-ID", c.lastEventID)
-
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("response error %v", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("status code %v not %v", resp.StatusCode, http.StatusOK)
-			}
+			resp := getEvents(t, ctx, serverURL, c.lastEventID)
 
 			// reads one message - if id is after lastEventID, all good
 			id, _ := readSSEMessage(t, bufio.NewReader(resp.Body))
@@ -782,33 +648,13 @@ func TestGetHandlerGetsNextEventAfterLastEvent(t *testing.T) {
 }
 
 func TestGetHandlerSendsNothingAfterTheLastEvent(t *testing.T) {
-	b := bus.New(t.Context())
-	b.Publish(events.Event{Message: "1"})
-	b.Publish(events.Event{Message: "2"})
+	b, history := busWithEvents(t, t.Context(), "1", "2")
 
-	history, _, unsubscribe := b.Subscribe("")
-	unsubscribe()
-
-	server := httptest.NewServer(handlers.NewMux(t.Context(), b, newFakeRunner(nil)))
-	defer server.Close()
+	serverURL := newServer(t, t.Context(), b, newFakeRunner(nil))
 
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/events", nil)
-	if err != nil {
-		t.Fatalf("error creating request %v", err)
-	}
-	req.Header.Set("Last-Event-ID", history[1].ID)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("response error %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status code %v not %v", resp.StatusCode, http.StatusOK)
-	}
+	resp := getEvents(t, ctx, serverURL, history[1].ID)
 
 	// add a deadline and read everything
 	got, err := io.ReadAll(resp.Body)
