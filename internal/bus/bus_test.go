@@ -359,12 +359,6 @@ func TestPublishStampsIDAndTimestamp(t *testing.T) {
 }
 
 func TestBusResumesAfterLastID(t *testing.T) {
-	// given id -> history received is after that id
-	// setup -> create bus, add events, grab specific id
-	// assert -> subscribe
-	// test -> hsitory shows events after id
-	//
-
 	// setup
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
