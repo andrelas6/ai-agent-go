@@ -136,7 +136,7 @@ func TestRunnerRunsOnTheServerContext(t *testing.T) {
 func TestPostClearReturnsOK(t *testing.T) {
 	serverURL := newServer(t, t.Context(), bus.New(t.Context()), newFakeRunner(nil))
 
-	res := post(t, t.Context(), serverURL+"/api/clear", "")
+	res := postJSON(t, t.Context(), serverURL+"/api/clear", "")
 
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", res.StatusCode, http.StatusOK)
@@ -260,7 +260,7 @@ func TestPostClearEmptiesTheHistory(t *testing.T) {
 	b, _ := busWithEvents(t, ctx, "before-clear")
 	serverURL := newServer(t, ctx, b, newFakeRunner(nil))
 
-	post(t, ctx, serverURL+"/api/clear", "")
+	postJSON(t, ctx, serverURL+"/api/clear", "")
 
 	stream := openEventStream(t, ctx, serverURL)
 	b.Publish(events.Event{Type: events.Log, Message: "after-clear"})
@@ -559,7 +559,7 @@ func openEventStream(t *testing.T, ctx context.Context, serverURL string) *bufio
 	return bufio.NewReader(getEvents(t, ctx, serverURL, "").Body)
 }
 
-func post(t *testing.T, ctx context.Context, url, body string) *http.Response {
+func postJSON(t *testing.T, ctx context.Context, url, body string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
 	if err != nil {
@@ -590,7 +590,7 @@ func get(t *testing.T, ctx context.Context, url string) *http.Response {
 
 func postTask(t *testing.T, ctx context.Context, serverURL, body string) *http.Response {
 	t.Helper()
-	return post(t, ctx, serverURL+"/api/tasks", body)
+	return postJSON(t, ctx, serverURL+"/api/tasks", body)
 }
 
 func decodeWorkflowID(t *testing.T, res *http.Response) string {
