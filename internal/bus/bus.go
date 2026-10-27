@@ -52,7 +52,7 @@ func (b *Bus) Subscribe(lastEventID string) (history []events.Event, liveEventCh
 	// order is also important, because a publisher after a subscribe should work for that subscribe (causal consistency)
 	select {
 	case <-b.doneCh:
-		return nil, nil, func() {}
+		return nil, closedStream(), func() {}
 	case b.subscribeCh <- subscription{liveEventCh: eventCh, replyCh: replyCh, lastEventID: lastEventID}:
 		return <-replyCh,
 			eventCh, func() {
@@ -62,6 +62,12 @@ func (b *Bus) Subscribe(lastEventID string) (history []events.Event, liveEventCh
 				}
 			}
 	}
+}
+
+func closedStream() <-chan events.Event {
+	ch := make(chan events.Event)
+	close(ch)
+	return ch
 }
 
 func New(ctx context.Context) *Bus {
