@@ -442,6 +442,72 @@ func TestBusResumeAfterClearGivesFullHistory(t *testing.T) {
 	}
 }
 
+func TestPublishToFullChannelClosesIt(t *testing.T) {
+	// setup
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*1)
+	defer cancel()
+	b := bus.New(ctx)
+
+	_, stream, unsubscribe := b.Subscribe("")
+	defer unsubscribe()
+
+	streamBCh := make(chan int, 1)
+	_, streamB, unsubscribe := b.Subscribe("")
+	defer unsubscribe()
+	go func() {
+		for i := range bus.SubscriberBuffer + 1 {
+			select {
+			case _, ok := <-streamB:
+				if !ok {
+					streamBCh <- i
+					return
+				}
+			case <-time.After(time.Second * 1):
+				streamBCh <- i
+				return
+			}
+		}
+
+		streamBCh <- bus.SubscriberBuffer + 1
+	}()
+
+	// execute
+	for range bus.SubscriberBuffer + 1 {
+		b.Publish(events.Event{Type: events.WorkflowStarted})
+	}
+
+	_, _, otherUnsubscribe := b.Subscribe("")
+	otherUnsubscribe()
+
+	// read all values
+	for i := range bus.SubscriberBuffer {
+		select {
+		case _, ok := <-stream:
+			if !ok {
+				t.Fatalf("stream closed after %v events, want %v", i, bus.SubscriberBuffer)
+			}
+		case <-time.After(time.Second * 1):
+			t.Fatalf("timeout 1s after %v events", i)
+		}
+	}
+
+	// reached last event of the buffer
+	select {
+	case _, ok := <-stream:
+		if ok {
+			t.Fatal("got an event past the buffer, want the channel closed")
+		}
+	case <-time.After(time.Second * 1):
+		t.Fatal("channel was not closed within 1s")
+	}
+
+	// second subscriber
+	if got := <-streamBCh; got != bus.SubscriberBuffer+1 {
+		t.Fatalf("stream b got %v events, want %v", got, bus.SubscriberBuffer+1)
+	}
+
+}
+
 func eventMessages(history []events.Event) []string {
 	messages := make([]string, 0, len(history))
 	for _, e := range history {

@@ -3,6 +3,7 @@ package bus
 import (
 	"andrelas6/ai-agent-go/internal/events"
 	"context"
+	"log"
 	"slices"
 	"time"
 
@@ -90,7 +91,11 @@ func New(ctx context.Context) *Bus {
 					// TODO: disconnect the handler assigned to that stream when the eventStream is full so that they can reconnect
 					select {
 					case eventStream <- event:
+					// if buffer is full, gets here
 					default:
+						close(eventStream)
+						delete(streams, eventStream)
+						log.Printf("bus: subscriber fell %d events behind, closing its stream so it reconnects", SubscriberBuffer)
 					}
 				}
 			case subscription := <-b.subscribeCh:
