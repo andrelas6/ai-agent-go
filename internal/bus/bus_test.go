@@ -442,6 +442,132 @@ func TestBusResumeAfterClearGivesFullHistory(t *testing.T) {
 	}
 }
 
+func TestPublishToFullChannelClosesIt(t *testing.T) {
+	// setup
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*1)
+	defer cancel()
+	b := bus.New(ctx)
+
+	_, stream, unsubscribe := b.Subscribe("")
+	defer unsubscribe()
+
+	streamBCh := make(chan int, 1)
+	_, streamB, unsubscribe := b.Subscribe("")
+	defer unsubscribe()
+	go func() {
+		for i := range bus.SubscriberBuffer + 1 {
+			select {
+			case _, ok := <-streamB:
+				if !ok {
+					streamBCh <- i
+					return
+				}
+			case <-time.After(time.Second * 1):
+				streamBCh <- i
+				return
+			}
+		}
+
+		streamBCh <- bus.SubscriberBuffer + 1
+	}()
+
+	// execute
+	for range bus.SubscriberBuffer + 1 {
+		b.Publish(events.Event{Type: events.WorkflowStarted})
+	}
+
+	_, _, otherUnsubscribe := b.Subscribe("")
+	otherUnsubscribe()
+
+	// read all values
+	for i := range bus.SubscriberBuffer {
+		select {
+		case _, ok := <-stream:
+			if !ok {
+				t.Fatalf("stream closed after %v events, want %v", i, bus.SubscriberBuffer)
+			}
+		case <-time.After(time.Second * 1):
+			t.Fatalf("timeout 1s after %v events", i)
+		}
+	}
+
+	// reached last event of the buffer
+	select {
+	case _, ok := <-stream:
+		if ok {
+			t.Fatal("got an event past the buffer, want the channel closed")
+		}
+	case <-time.After(time.Second * 1):
+		t.Fatal("channel was not closed within 1s")
+	}
+
+	// second subscriber
+	if got := <-streamBCh; got != bus.SubscriberBuffer+1 {
+		t.Fatalf("stream b got %v events, want %v", got, bus.SubscriberBuffer+1)
+	}
+
+}
+
+func TestHistoryKeepLast1000Events(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*1)
+	defer cancel()
+	// setup
+	b := bus.New(ctx)
+
+	for i := range bus.HistoryLimit {
+		b.Publish(events.Event{Message: fmt.Sprintf("%d", i+1)})
+	}
+
+	b.Publish(events.Event{Message: "1001"})
+
+	history, _, unsubscribe := b.Subscribe("")
+	defer unsubscribe()
+
+	if len(history) != bus.HistoryLimit {
+		t.Fatalf("history has %v events, want %v", len(history), bus.HistoryLimit)
+	}
+	if first, last := history[0].Message, history[len(history)-1].Message; first != "2" || last != "1001" {
+		t.Errorf("history runs %q … %q, want %q … %q", first, last, "2", "1001")
+	}
+}
+
+func TestHistoryReplaysFullyWhenIdOfDroppedEventIsUsed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*1)
+	defer cancel()
+
+	b := bus.New(ctx)
+	b.Publish(events.Event{})
+	b.Publish(events.Event{})
+	history, _, unsubscribe := b.Subscribe("")
+	firstDroppedEvent := history[0]
+	secondDroppedEvent := history[1]
+	unsubscribe()
+
+	for range bus.HistoryLimit {
+		b.Publish(events.Event{})
+	}
+
+	replay, _, unsubscribe := b.Subscribe(firstDroppedEvent.ID)
+	unsubscribe()
+
+	full, _, unsubscribe := b.Subscribe("")
+	unsubscribe()
+
+	if len(replay) != len(full) {
+		t.Fatalf("replay has %v events, want %v", len(replay), len(full))
+	}
+
+	if replay[0].ID == secondDroppedEvent.ID {
+		t.Fatalf("replay starts at the second dropped event %v, want the oldest event still in history", secondDroppedEvent.ID)
+	}
+
+	for i := range len(replay) {
+		if replay[i].ID != full[i].ID {
+			t.Fatalf("replay[%d] = %v, want %v", i, replay[i].ID, full[i].ID)
+		}
+	}
+}
+
 func eventMessages(history []events.Event) []string {
 	messages := make([]string, 0, len(history))
 	for _, e := range history {
