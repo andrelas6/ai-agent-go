@@ -4,16 +4,22 @@ import (
 	"andrelas6/ai-agent-go/internal/agent"
 	"andrelas6/ai-agent-go/internal/events"
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
 
-func fakeEmitter(calls chan<- events.Event, t *testing.T) func(events.Event) {
+func fakeEmitter(backChannel chan<- events.Event, t *testing.T) func(events.Event) {
 	return func(event events.Event) {
+		if _, err := json.Marshal(event); err != nil {
+			t.Fatalf("error unmasharling event %v", err)
+		}
+
 		// capture call
 		select {
-		case calls <- event:
+		case backChannel <- event:
 		case <-time.After(time.Second * 1):
 			t.Fatal("fakeEmitter timeout - calls buffer is full")
 		}
@@ -23,24 +29,28 @@ func fakeEmitter(calls chan<- events.Event, t *testing.T) func(events.Event) {
 
 func newFakeModel(callsBufferSize int) fakeModel {
 	errCh := make(chan string, 1)
-	calls := make(chan []agent.Message, callsBufferSize)
+	calls := make(chan nextCalls, callsBufferSize)
 	return fakeModel{
-		calls: calls,
-		errCh: errCh,
+		nextCallsCh: calls,
+		errCh:       errCh,
 	}
 }
 
+type nextCalls struct {
+	messages []agent.Message
+	tools    []agent.Tool
+}
 type fakeModel struct {
-	calls chan []agent.Message
-	errCh chan string
+	nextCallsCh chan nextCalls
+	errCh       chan string
 }
 
-func (f fakeModel) Next(ctx context.Context, messages []agent.Message) (agent.Message, error) {
+func (f fakeModel) Next(ctx context.Context, messages []agent.Message, tools []agent.Tool) (agent.Message, error) {
 	var toolCalls []agent.ToolCall
 	select {
 	case <-ctx.Done():
 		return agent.Message{}, ctx.Err()
-	case f.calls <- messages:
+	case f.nextCallsCh <- nextCalls{messages: messages, tools: tools}:
 		select {
 		case msg := <-f.errCh:
 			return agent.Message{}, errors.New(msg)
@@ -56,17 +66,13 @@ func TestAgentRunBasic(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
 	defer cancel()
 
-	calls := make(chan events.Event, 3)
+	expectedEmitterCalls := 3
+	calls := make(chan events.Event, expectedEmitterCalls)
 
 	fakeWorkflowId := "1234"
 	input := "input"
-	fM := newFakeModel(1)
+	fM := newFakeModel(expectedEmitterCalls)
 	a := agent.NewAgent("", fM)
-
-	indexToEventType := make(map[int]events.Type)
-	indexToEventType[0] = events.WorkflowStarted
-	indexToEventType[1] = events.ModelCompleted
-	indexToEventType[2] = events.WorkflowCompleted
 
 	// execute
 	a.Run(ctx, fakeWorkflowId, input, fakeEmitter(calls, t))
@@ -104,17 +110,24 @@ func TestAgentRunBasic(t *testing.T) {
 		}
 	}
 
-	for i := range 3 {
+	for i := range expectedEmitterCalls {
 		select {
 		case emittedEvent := <-calls:
 			assertEmittedEvents(i, emittedEvent)
-			if i == 2 {
-				return
-			}
 		case <-time.After(time.Second * 1):
-			t.Fatal("timeout 1s")
+			t.Fatal("TestAgentRunBasic timeout 1s")
 			return
 		}
+	}
+
+	select {
+	case nextCall := <-fM.nextCallsCh:
+		want := []agent.Message{{Role: "user", Content: "input"}}
+		if !reflect.DeepEqual(nextCall.messages, want) {
+			t.Fatalf("model got messages %+v. expected %+v", nextCall.messages, want)
+		}
+	case <-time.After(time.Second * 1):
+		t.Fatal("assert timeout 1s")
 	}
 
 }
@@ -124,7 +137,7 @@ func TestAgentEmitErrorWhenModelErrors(t *testing.T) {
 	expectedEmitterCalls := 2
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
 	defer cancel()
-	m := newFakeModel(3)
+	m := newFakeModel(1)
 	errorMsg := "model is unavailable"
 	input := "hi"
 
@@ -172,7 +185,36 @@ func TestAgentEmitErrorWhenModelErrors(t *testing.T) {
 		}
 	}
 
-	if got := len(m.calls); got != 1 {
+	if got := len(m.nextCallsCh); got != 1 {
 		t.Fatalf("model called %d times. expected 1", got)
+	}
+}
+
+func TestAgentPassTools(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
+	defer cancel()
+
+	// setup
+	workflowID := "1234"
+	expectedEmits := 3
+	fModel := newFakeModel(1)
+	a := agent.NewAgent("", fModel)
+	dummyTool := agent.Tool{
+		Name: "dummy-tool",
+	}
+	a.Tools = []agent.Tool{dummyTool}
+
+	// execute
+	backChannel := make(chan events.Event, expectedEmits)
+	a.Run(ctx, workflowID, "hi", fakeEmitter(backChannel, t))
+
+	// assert
+	select {
+	case nextCall := <-fModel.nextCallsCh:
+		if len(nextCall.tools) != 1 || nextCall.tools[0].Name != dummyTool.Name {
+			t.Fatalf("got %v. expected only one tool %v", nextCall.tools, dummyTool.Name)
+		}
+	case <-time.After(time.Second * 1):
+		t.Fatal("assert timeout 1s")
 	}
 }

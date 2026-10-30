@@ -29,7 +29,7 @@ type Tool struct {
 }
 
 type Model interface {
-	Next(ctx context.Context, messages []Message) (Message, error)
+	Next(ctx context.Context, messages []Message, tools []Tool) (Message, error)
 }
 
 type Agent struct {
@@ -37,6 +37,7 @@ type Agent struct {
 	Model        Model
 	MaxSteps     int
 	SystemPrompt string
+	Tools        []Tool
 }
 
 func NewAgent(systemPrompt string, model Model) *Agent {
@@ -44,6 +45,7 @@ func NewAgent(systemPrompt string, model Model) *Agent {
 		Model:        model,
 		MaxSteps:     10,
 		SystemPrompt: systemPrompt,
+		Tools:        []Tool{},
 	}
 }
 
@@ -69,9 +71,9 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 		Role:    "user",
 	})
 
-	var step int
-	for ; step < a.MaxSteps; step++ {
-		message, err := a.Model.Next(ctx, slices.Clone(messages))
+	for step := 0; step < a.MaxSteps; step++ {
+		// model run
+		message, err := a.Model.Next(ctx, slices.Clone(messages), slices.Clone(a.Tools))
 		if err != nil {
 			emit(events.Event{
 				WorkflowID: workflowID,
@@ -94,24 +96,20 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 				Text:       message.Content,
 				WorkflowID: workflowID,
 			})
-			break
+			emit(events.Event{
+				Type:       events.WorkflowCompleted,
+				Output:     message.Content,
+				WorkflowID: workflowID,
+			})
+			return
 		}
 	}
 
 	// error
-	if step == a.MaxSteps {
-		emit(events.Event{
-			WorkflowID: workflowID,
-			Type:       events.WorkflowFailed,
-			Error:      fmt.Sprintf("agent loop reached max steps (%v) without answer", a.MaxSteps),
-		})
-		return
-	}
-
-	eventCompleted := events.Event{
-		Output:     messages[len(messages)-1].Content,
+	// if model still has tool calls after maxSteps, it is not finished but limit is done
+	emit(events.Event{
 		WorkflowID: workflowID,
-		Type:       events.WorkflowCompleted,
-	}
-	emit(eventCompleted)
+		Type:       events.WorkflowFailed,
+		Error:      fmt.Sprintf("agent loop reached max steps (%v) without answer", a.MaxSteps),
+	})
 }
