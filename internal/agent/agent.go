@@ -25,7 +25,7 @@ type Tool struct {
 	Name        string
 	Description string
 	Parameters  map[string]any
-	Run         func(ctx context.Context, args json.RawMessage) any
+	Run         func(ctx context.Context, args json.RawMessage) (any, error)
 }
 
 type Model interface {
@@ -47,6 +47,22 @@ func NewAgent(systemPrompt string, model Model) *Agent {
 		SystemPrompt: systemPrompt,
 		Tools:        []Tool{},
 	}
+}
+
+type ModelResponse string
+
+const (
+	ToolRequested  ModelResponse = "ToolRequested"
+	ToolCompleted  ModelResponse = "ToolCompleted"
+	ModelCompleted ModelResponse = "ModelCompleted"
+	Unknown        ModelResponse = "Unknown"
+)
+
+func getModelResponse(message Message) ModelResponse {
+	if len(message.ToolCalls) == 0 {
+		return ModelCompleted
+	}
+	return Unknown
 }
 
 func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit func(events.Event)) {
@@ -89,7 +105,9 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 		// 4 - err (already handled above and in some other places)
 
 		// for now only one case - model completed
-		if len(message.ToolCalls) == 0 {
+		modelResponse := getModelResponse(message)
+		switch modelResponse {
+		case ModelCompleted:
 			messages = append(messages, message)
 			emit(events.Event{
 				Type:       events.ModelCompleted,
@@ -102,6 +120,13 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 				WorkflowID: workflowID,
 			})
 			return
+		// unknown is error
+		default:
+			emit(events.Event{
+				WorkflowID: workflowID,
+				Type:       events.WorkflowFailed,
+				Error:      fmt.Sprintf("unknown message %v", message),
+			})
 		}
 	}
 

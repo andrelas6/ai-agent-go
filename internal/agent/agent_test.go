@@ -14,7 +14,7 @@ import (
 func fakeEmitter(backChannel chan<- events.Event, t *testing.T) func(events.Event) {
 	return func(event events.Event) {
 		if _, err := json.Marshal(event); err != nil {
-			t.Fatalf("error unmasharling event %v", err)
+			t.Fatalf("error marshalling event %v", err)
 		}
 
 		// capture call
