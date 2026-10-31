@@ -28,13 +28,21 @@ func fakeEmitter(backChannel chan<- events.Event, t *testing.T) func(events.Even
 
 }
 
-func newFakeModel(callsBufferSize int) fakeModel {
-	errCh := make(chan string, 1)
-	calls := make(chan nextCalls, callsBufferSize)
-	return fakeModel{
-		nextCallsCh: calls,
-		errCh:       errCh,
+func newFakeModel(replies ...fakeReply) fakeModel {
+	repliesCh := make(chan fakeReply, len(replies))
+	for _, reply := range replies {
+		repliesCh <- reply
 	}
+	return fakeModel{
+		// +1 because if the test calls without replies (or there aer no replies left), the Next function records that with the "no scripted reply left"
+		nextCallsCh: make(chan nextCalls, len(replies)+1),
+		repliesCh:   repliesCh,
+	}
+}
+
+type fakeReply struct {
+	message agent.Message
+	err     error
 }
 
 type nextCalls struct {
@@ -43,8 +51,7 @@ type nextCalls struct {
 }
 type fakeModel struct {
 	nextCallsCh chan nextCalls
-	errCh       chan string
-	toolCalls   []agent.ToolCall
+	repliesCh   chan fakeReply
 }
 
 func (f fakeModel) Next(ctx context.Context, messages []agent.Message, tools []agent.Tool) (agent.Message, error) {
@@ -53,11 +60,10 @@ func (f fakeModel) Next(ctx context.Context, messages []agent.Message, tools []a
 		return agent.Message{}, ctx.Err()
 	case f.nextCallsCh <- nextCalls{messages: messages, tools: tools}:
 		select {
-		case msg := <-f.errCh:
-			return agent.Message{}, errors.New(msg)
+		case reply := <-f.repliesCh:
+			return reply.message, reply.err
 		default:
-			// TODO: maybe assistant, user, system should be in a type somewhere
-			return agent.Message{Content: "done", Role: "assistant", ToolCalls: f.toolCalls, ToolCallID: ""}, nil
+			return agent.Message{}, errors.New("fakeModel: no scripted reply left")
 		}
 	}
 }
@@ -72,7 +78,8 @@ func TestAgentRunBasic(t *testing.T) {
 
 	fakeWorkflowId := "1234"
 	input := "input"
-	fM := newFakeModel(expectedEmitterCalls)
+	// TODO: maybe assistant, user, system should be in a type somewhere
+	fM := newFakeModel(fakeReply{message: agent.Message{Content: "done", Role: "assistant"}})
 	a := agent.NewAgent("", fM)
 
 	// execute
@@ -138,15 +145,14 @@ func TestAgentEmitErrorWhenModelErrors(t *testing.T) {
 	expectedEmitterCalls := 2
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
 	defer cancel()
-	m := newFakeModel(1)
 	errorMsg := "model is unavailable"
+	m := newFakeModel(fakeReply{err: errors.New(errorMsg)})
 	input := "hi"
 
 	a := agent.NewAgent("", m)
 	workflowID := "1234"
 	// expect 2 calls - if the emitter tries to write a third time, it will block and the test will fail
 	calls := make(chan events.Event, expectedEmitterCalls)
-	m.errCh <- errorMsg
 
 	// execute
 	a.Run(ctx, workflowID, input, fakeEmitter(calls, t))
@@ -198,7 +204,7 @@ func TestAgentPassTools(t *testing.T) {
 	// setup
 	workflowID := "1234"
 	expectedEmits := 3
-	fModel := newFakeModel(1)
+	fModel := newFakeModel(fakeReply{message: agent.Message{Content: "done", Role: "assistant"}})
 	a := agent.NewAgent("", fModel)
 	dummyTool := agent.Tool{
 		Name: "dummy-tool",
@@ -228,8 +234,10 @@ func TestAgentFailsOnceOnUnknownModelResponse(t *testing.T) {
 	// setup
 	workflowID := "1234"
 	expectedEmits := 2
-	fModel := newFakeModel(3)
-	fModel.toolCalls = []agent.ToolCall{{ID: "call-1", Name: "dummy-tool"}}
+	fModel := newFakeModel(fakeReply{message: agent.Message{
+		Role:      "assistant",
+		ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "dummy-tool"}},
+	}})
 	a := agent.NewAgent("", fModel)
 
 	// execute
