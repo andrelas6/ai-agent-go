@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -43,10 +44,10 @@ type nextCalls struct {
 type fakeModel struct {
 	nextCallsCh chan nextCalls
 	errCh       chan string
+	toolCalls   []agent.ToolCall
 }
 
 func (f fakeModel) Next(ctx context.Context, messages []agent.Message, tools []agent.Tool) (agent.Message, error) {
-	var toolCalls []agent.ToolCall
 	select {
 	case <-ctx.Done():
 		return agent.Message{}, ctx.Err()
@@ -56,7 +57,7 @@ func (f fakeModel) Next(ctx context.Context, messages []agent.Message, tools []a
 			return agent.Message{}, errors.New(msg)
 		default:
 			// TODO: maybe assistant, user, system should be in a type somewhere
-			return agent.Message{Content: "done", Role: "assistant", ToolCalls: toolCalls, ToolCallID: ""}, nil
+			return agent.Message{Content: "done", Role: "assistant", ToolCalls: f.toolCalls, ToolCallID: ""}, nil
 		}
 	}
 }
@@ -216,5 +217,40 @@ func TestAgentPassTools(t *testing.T) {
 		}
 	case <-time.After(time.Second * 1):
 		t.Fatal("assert timeout 1s")
+	}
+}
+
+// TODO: test will have to be refactored because response with tool calls will be handled
+func TestAgentFailsOnceOnUnknownModelResponse(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
+	defer cancel()
+
+	// setup
+	workflowID := "1234"
+	expectedEmits := 2
+	fModel := newFakeModel(3)
+	fModel.toolCalls = []agent.ToolCall{{ID: "call-1", Name: "dummy-tool"}}
+	a := agent.NewAgent("", fModel)
+
+	// execute
+	backChannel := make(chan events.Event, expectedEmits)
+	a.Run(ctx, workflowID, "hi", fakeEmitter(backChannel, t))
+
+	// assert
+	if started := <-backChannel; started.Type != events.WorkflowStarted {
+		t.Fatalf("got %v. expected %v", started.Type, events.WorkflowStarted)
+	}
+	failed := <-backChannel
+	if failed.Type != events.WorkflowFailed {
+		t.Fatalf("got %v. expected %v", failed.Type, events.WorkflowFailed)
+	}
+	if failed.WorkflowID != workflowID {
+		t.Fatalf("got %v. expected %v", failed.WorkflowID, workflowID)
+	}
+	if !strings.HasPrefix(failed.Error, "unknown message") {
+		t.Fatalf("got %v. expected an unknown message error", failed.Error)
+	}
+	if got := len(fModel.nextCallsCh); got != 1 {
+		t.Fatalf("model called %d times. expected 1", got)
 	}
 }

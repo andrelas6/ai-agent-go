@@ -127,6 +127,7 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 				Type:       events.WorkflowFailed,
 				Error:      fmt.Sprintf("unknown message %v", message),
 			})
+			return
 		}
 	}
 
