@@ -59,10 +59,25 @@ const (
 )
 
 func getModelResponse(message Message) ModelResponse {
-	if len(message.ToolCalls) == 0 {
+	if len(message.ToolCalls) > 0 {
+		return ToolRequested
+	}
+	if message.Content != "" {
 		return ModelCompleted
 	}
 	return Unknown
+}
+
+func (a *Agent) runTool(ctx context.Context, call ToolCall) (json.RawMessage, error) {
+	index := slices.IndexFunc(a.Tools, func(tool Tool) bool { return tool.Name == call.Name })
+	if index == -1 {
+		return nil, fmt.Errorf("unknown tool %q", call.Name)
+	}
+	value, err := a.Tools[index].Run(ctx, call.Args)
+	if err != nil {
+		return nil, fmt.Errorf("tool %q: %w", call.Name, err)
+	}
+	return json.Marshal(value)
 }
 
 func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit func(events.Event)) {
@@ -120,6 +135,37 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 				WorkflowID: workflowID,
 			})
 			return
+		case ToolRequested:
+			messages = append(messages, message)
+			for _, call := range message.ToolCalls {
+				emit(events.Event{
+					WorkflowID: workflowID,
+					Type:       events.ToolRequested,
+					ToolCallID: call.ID,
+					Name:       call.Name,
+					Args:       call.Args,
+				})
+				result, err := a.runTool(ctx, call)
+				if err != nil {
+					emit(events.Event{
+						WorkflowID: workflowID,
+						Type:       events.WorkflowFailed,
+						Error:      err.Error(),
+					})
+					return
+				}
+				emit(events.Event{
+					WorkflowID: workflowID,
+					Type:       events.ToolCompleted,
+					ToolCallID: call.ID,
+					Result:     result,
+				})
+				messages = append(messages, Message{
+					Role:       "tool",
+					Content:    string(result),
+					ToolCallID: call.ID,
+				})
+			}
 		// unknown is error
 		default:
 			emit(events.Event{
