@@ -10,10 +10,11 @@ import (
 )
 
 type Message struct {
-	Role       string
-	Content    string
-	ToolCalls  []ToolCall
-	ToolCallID string
+	Role         string
+	Content      string
+	ToolCalls    []ToolCall
+	ToolCallID   string
+	FinishReason string
 }
 
 type ToolCall struct {
@@ -56,12 +57,16 @@ const (
 	ToolRequested  ModelResponse = "ToolRequested"
 	ToolCompleted  ModelResponse = "ToolCompleted"
 	ModelCompleted ModelResponse = "ModelCompleted"
+	ModelCutOff    ModelResponse = "ModelCutOff"
 	Unknown        ModelResponse = "Unknown"
 )
 
 func getModelResponse(message Message) ModelResponse {
 	if len(message.ToolCalls) > 0 {
 		return ToolRequested
+	}
+	if slices.Contains([]string{"length", "content_filter", "error"}, message.FinishReason) {
+		return ModelCutOff
 	}
 	if message.Content != "" {
 		return ModelCompleted
@@ -213,6 +218,13 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 					ToolCallID: call.ID,
 				})
 			}
+		case ModelCutOff:
+			emit(events.Event{
+				WorkflowID: workflowID,
+				Type:       events.WorkflowFailed,
+				Error:      "model reply was cut off: " + message.FinishReason,
+			})
+			return
 		// unknown is error
 		default:
 			emit(events.Event{
