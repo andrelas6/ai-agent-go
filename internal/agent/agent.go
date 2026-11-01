@@ -4,6 +4,7 @@ import (
 	"andrelas6/ai-agent-go/internal/events"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 )
@@ -73,11 +74,28 @@ func (a *Agent) runTool(ctx context.Context, call ToolCall) (json.RawMessage, er
 	if index == -1 {
 		return nil, fmt.Errorf("unknown tool %q", call.Name)
 	}
+	if len(call.Args) == 0 {
+		return nil, errors.New("no arguments sent")
+	}
+	if !json.Valid(call.Args) {
+		return nil, errors.New("invalid JSON arguments")
+	}
 	value, err := a.Tools[index].Run(ctx, call.Args)
 	if err != nil {
-		return nil, fmt.Errorf("tool %q: %w", call.Name, err)
+		return nil, err
 	}
 	return json.Marshal(value)
+}
+
+func jsonfyIfNeeded(args json.RawMessage) json.RawMessage {
+	if len(args) == 0 {
+		return nil
+	}
+	if json.Valid(args) {
+		return args
+	}
+	quoted, _ := json.Marshal(string(args))
+	return quoted
 }
 
 func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit func(events.Event)) {
@@ -143,16 +161,23 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 					Type:       events.ToolRequested,
 					ToolCallID: call.ID,
 					Name:       call.Name,
-					Args:       call.Args,
+					// if args are invalid, they still need to be stringified to be accounted in the agent loop
+					Args: jsonfyIfNeeded(call.Args),
 				})
 				result, err := a.runTool(ctx, call)
 				if err != nil {
 					emit(events.Event{
 						WorkflowID: workflowID,
-						Type:       events.WorkflowFailed,
+						Type:       events.ToolFailed,
+						ToolCallID: call.ID,
 						Error:      err.Error(),
 					})
-					return
+					messages = append(messages, Message{
+						Role:       "tool",
+						Content:    "error: " + err.Error(),
+						ToolCallID: call.ID,
+					})
+					continue
 				}
 				emit(events.Event{
 					WorkflowID: workflowID,

@@ -403,3 +403,219 @@ func TestAgentRunsSeveralToolCallsInOneTurn(t *testing.T) {
 		t.Fatalf("second model call got messages %+v. expected %+v", secondCall.messages, wantMessages)
 	}
 }
+
+func TestAgentContinuesWhenToolCallErrors(t *testing.T) {
+	workflowID := "1234"
+	input := "hi"
+	validArgs := json.RawMessage(`{"q":"x"}`)
+
+	tests := []struct {
+		name        string
+		call        agent.ToolCall
+		toolResult  any
+		toolErr     error
+		wantToolRan bool
+		wantError   string
+		wantEvents  []events.Event
+	}{
+		{
+			name:        "unknown tool name",
+			call:        agent.ToolCall{ID: "call-1", Name: "missing-tool", Args: validArgs},
+			wantToolRan: false,
+			wantError:   `unknown tool "missing-tool"`,
+			wantEvents: []events.Event{
+				{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
+				{Type: events.ToolRequested, WorkflowID: workflowID, ToolCallID: "call-1", Name: "missing-tool", Args: validArgs},
+				{Type: events.ToolFailed, WorkflowID: workflowID, ToolCallID: "call-1", Error: `unknown tool "missing-tool"`},
+				{Type: events.ModelCompleted, WorkflowID: workflowID, Text: "done"},
+				{Type: events.WorkflowCompleted, WorkflowID: workflowID, Output: "done"},
+			},
+		},
+		{
+			name:        "tool returns an error",
+			call:        agent.ToolCall{ID: "call-1", Name: "dummy-tool", Args: validArgs},
+			toolErr:     errors.New("tool blew up"),
+			wantToolRan: true,
+			wantError:   "tool blew up",
+			wantEvents: []events.Event{
+				{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
+				{Type: events.ToolRequested, WorkflowID: workflowID, ToolCallID: "call-1", Name: "dummy-tool", Args: validArgs},
+				{Type: events.ToolFailed, WorkflowID: workflowID, ToolCallID: "call-1", Error: "tool blew up"},
+				{Type: events.ModelCompleted, WorkflowID: workflowID, Text: "done"},
+				{Type: events.WorkflowCompleted, WorkflowID: workflowID, Output: "done"},
+			},
+		},
+		{
+			name:        "arguments are not valid JSON",
+			call:        agent.ToolCall{ID: "call-1", Name: "dummy-tool", Args: json.RawMessage(`{"q":`)},
+			wantToolRan: false,
+			wantError:   "invalid JSON arguments",
+			wantEvents: []events.Event{
+				{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
+				{Type: events.ToolRequested, WorkflowID: workflowID, ToolCallID: "call-1", Name: "dummy-tool", Args: json.RawMessage(`"{\"q\":"`)},
+				{Type: events.ToolFailed, WorkflowID: workflowID, ToolCallID: "call-1", Error: "invalid JSON arguments"},
+				{Type: events.ModelCompleted, WorkflowID: workflowID, Text: "done"},
+				{Type: events.WorkflowCompleted, WorkflowID: workflowID, Output: "done"},
+			},
+		},
+		{
+			name:        "no arguments sent",
+			call:        agent.ToolCall{ID: "call-1", Name: "dummy-tool"},
+			wantToolRan: false,
+			wantError:   "no arguments sent",
+			wantEvents: []events.Event{
+				{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
+				{Type: events.ToolRequested, WorkflowID: workflowID, ToolCallID: "call-1", Name: "dummy-tool"},
+				{Type: events.ToolFailed, WorkflowID: workflowID, ToolCallID: "call-1", Error: "no arguments sent"},
+				{Type: events.ModelCompleted, WorkflowID: workflowID, Text: "done"},
+				{Type: events.WorkflowCompleted, WorkflowID: workflowID, Output: "done"},
+			},
+		},
+		{
+			name:        "result won't marshal",
+			call:        agent.ToolCall{ID: "call-1", Name: "dummy-tool", Args: validArgs},
+			toolResult:  make(chan int),
+			wantToolRan: true,
+			wantError:   "json: unsupported type: chan int",
+			wantEvents: []events.Event{
+				{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
+				{Type: events.ToolRequested, WorkflowID: workflowID, ToolCallID: "call-1", Name: "dummy-tool", Args: validArgs},
+				{Type: events.ToolFailed, WorkflowID: workflowID, ToolCallID: "call-1", Error: "json: unsupported type: chan int"},
+				{Type: events.ModelCompleted, WorkflowID: workflowID, Text: "done"},
+				{Type: events.WorkflowCompleted, WorkflowID: workflowID, Output: "done"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// setup
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
+			defer cancel()
+
+			assistantWithToolCall := agent.Message{Role: "assistant", ToolCalls: []agent.ToolCall{tt.call}}
+			fModel := newFakeModel(
+				fakeReply{message: assistantWithToolCall},
+				fakeReply{message: agent.Message{Content: "done", Role: "assistant"}},
+			)
+
+			toolRan := false
+			a := agent.NewAgent("", fModel)
+			a.Tools = []agent.Tool{{
+				Name: "dummy-tool",
+				Run: func(ctx context.Context, args json.RawMessage) (any, error) {
+					toolRan = true
+					return tt.toolResult, tt.toolErr
+				},
+			}}
+
+			backChannel := make(chan events.Event, len(tt.wantEvents))
+
+			// execute
+			a.Run(ctx, workflowID, input, fakeEmitter(backChannel, t))
+			close(backChannel)
+
+			// assert
+			var gotEvents []events.Event
+			for event := range backChannel {
+				gotEvents = append(gotEvents, event)
+			}
+			if !reflect.DeepEqual(gotEvents, tt.wantEvents) {
+				t.Fatalf("got events %+v. expected %+v", gotEvents, tt.wantEvents)
+			}
+
+			if toolRan != tt.wantToolRan {
+				t.Fatalf("tool ran: got %v. expected %v", toolRan, tt.wantToolRan)
+			}
+
+			if got := len(fModel.nextCallsCh); got != 2 {
+				t.Fatalf("model called %d times. expected 2", got)
+			}
+			<-fModel.nextCallsCh
+			secondCall := <-fModel.nextCallsCh
+			wantMessages := []agent.Message{
+				{Role: "user", Content: input},
+				assistantWithToolCall,
+				{Role: "tool", Content: "error: " + tt.wantError, ToolCallID: "call-1"},
+			}
+			if !reflect.DeepEqual(secondCall.messages, wantMessages) {
+				t.Fatalf("second model call got messages %+v. expected %+v", secondCall.messages, wantMessages)
+			}
+		})
+	}
+}
+
+func TestAgentRunsSecondToolCallWhenFirstFails(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
+	defer cancel()
+
+	workflowID := "1234"
+	input := "hi"
+	args := json.RawMessage(`{"q":"x"}`)
+	result := json.RawMessage(`{"ok":true}`)
+	toolErrorText := "tool blew up"
+	assistantWithTwoToolCalls := agent.Message{
+		Role: "assistant",
+		ToolCalls: []agent.ToolCall{
+			{ID: "call-1", Name: "failing-tool", Args: args},
+			{ID: "call-2", Name: "working-tool", Args: args},
+		},
+	}
+	fModel := newFakeModel(
+		fakeReply{message: assistantWithTwoToolCalls},
+		fakeReply{message: agent.Message{Content: "done", Role: "assistant"}},
+	)
+
+	a := agent.NewAgent("", fModel)
+	a.Tools = []agent.Tool{
+		{
+			Name: "failing-tool",
+			Run: func(ctx context.Context, args json.RawMessage) (any, error) {
+				return nil, errors.New(toolErrorText)
+			},
+		},
+		{
+			Name: "working-tool",
+			Run: func(ctx context.Context, args json.RawMessage) (any, error) {
+				return map[string]bool{"ok": true}, nil
+			},
+		},
+	}
+
+	wantEvents := []events.Event{
+		{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
+		{Type: events.ToolRequested, WorkflowID: workflowID, ToolCallID: "call-1", Name: "failing-tool", Args: args},
+		{Type: events.ToolFailed, WorkflowID: workflowID, ToolCallID: "call-1", Error: toolErrorText},
+		{Type: events.ToolRequested, WorkflowID: workflowID, ToolCallID: "call-2", Name: "working-tool", Args: args},
+		{Type: events.ToolCompleted, WorkflowID: workflowID, ToolCallID: "call-2", Result: result},
+		{Type: events.ModelCompleted, WorkflowID: workflowID, Text: "done"},
+		{Type: events.WorkflowCompleted, WorkflowID: workflowID, Output: "done"},
+	}
+	backChannel := make(chan events.Event, len(wantEvents))
+
+	a.Run(ctx, workflowID, input, fakeEmitter(backChannel, t))
+	close(backChannel)
+
+	var gotEvents []events.Event
+	for event := range backChannel {
+		gotEvents = append(gotEvents, event)
+	}
+	if !reflect.DeepEqual(gotEvents, wantEvents) {
+		t.Fatalf("got events %+v. expected %+v", gotEvents, wantEvents)
+	}
+
+	if got := len(fModel.nextCallsCh); got != 2 {
+		t.Fatalf("model called %d times. expected 2", got)
+	}
+	<-fModel.nextCallsCh
+	secondCall := <-fModel.nextCallsCh
+	wantMessages := []agent.Message{
+		{Role: "user", Content: input},
+		assistantWithTwoToolCalls,
+		{Role: "tool", Content: "error: " + toolErrorText, ToolCallID: "call-1"},
+		{Role: "tool", Content: string(result), ToolCallID: "call-2"},
+	}
+	if !reflect.DeepEqual(secondCall.messages, wantMessages) {
+		t.Fatalf("second model call got messages %+v. expected %+v", secondCall.messages, wantMessages)
+	}
+}
