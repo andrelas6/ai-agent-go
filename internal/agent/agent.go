@@ -209,7 +209,7 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 			emit(events.Event{
 				WorkflowID: workflowID,
 				Type:       events.WorkflowFailed,
-				Error:      fmt.Sprintf("unknown message %v", message),
+				Error:      "model returned no text and no tool calls",
 			})
 			return
 		}

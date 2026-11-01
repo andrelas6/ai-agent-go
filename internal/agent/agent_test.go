@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 )
@@ -254,8 +253,9 @@ func TestAgentFailsOnceOnUnknownModelResponse(t *testing.T) {
 	if failed.WorkflowID != workflowID {
 		t.Fatalf("got %v. expected %v", failed.WorkflowID, workflowID)
 	}
-	if !strings.HasPrefix(failed.Error, "unknown message") {
-		t.Fatalf("got %v. expected an unknown message error", failed.Error)
+	wantError := "model returned no text and no tool calls"
+	if failed.Error != wantError {
+		t.Fatalf("got %v. expected %v", failed.Error, wantError)
 	}
 	if got := len(fModel.nextCallsCh); got != 1 {
 		t.Fatalf("model called %d times. expected 1", got)
