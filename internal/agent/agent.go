@@ -207,6 +207,6 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 	emit(events.Event{
 		WorkflowID: workflowID,
 		Type:       events.WorkflowFailed,
-		Error:      fmt.Sprintf("agent loop reached max steps (%v) without answer", a.MaxSteps),
+		Error:      fmt.Sprintf("Hit the %d-step limit without finishing.", a.MaxSteps),
 	})
 }

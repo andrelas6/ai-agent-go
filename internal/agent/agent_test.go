@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -617,5 +619,110 @@ func TestAgentRunsSecondToolCallWhenFirstFails(t *testing.T) {
 	}
 	if !reflect.DeepEqual(secondCall.messages, wantMessages) {
 		t.Fatalf("second model call got messages %+v. expected %+v", secondCall.messages, wantMessages)
+	}
+}
+
+func TestAgentStepLimit(t *testing.T) {
+	workflowID := "1234"
+	input := "hi"
+	args := json.RawMessage(`{"q":"x"}`)
+	result := json.RawMessage(`{"ok":true}`)
+	toolErrorText := "tool blew up"
+	stepLimitError := "Hit the 10-step limit without finishing."
+
+	started := []events.Event{{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input}}
+	hitTheLimit := []events.Event{{Type: events.WorkflowFailed, WorkflowID: workflowID, Error: stepLimitError}}
+	answered := []events.Event{
+		{Type: events.ModelCompleted, WorkflowID: workflowID, Text: "done"},
+		{Type: events.WorkflowCompleted, WorkflowID: workflowID, Output: "done"},
+	}
+
+	toolCallReplies := func(count int) []fakeReply {
+		var replies []fakeReply
+		for i := range count {
+			replies = append(replies, fakeReply{message: agent.Message{
+				Role:      "assistant",
+				ToolCalls: []agent.ToolCall{{ID: fmt.Sprintf("call-%d", i+1), Name: "dummy-tool", Args: args}},
+			}})
+		}
+		return replies
+	}
+	toolTurns := func(count int, outcome func(callID string) events.Event) []events.Event {
+		var turns []events.Event
+		for i := range count {
+			callID := fmt.Sprintf("call-%d", i+1)
+			turns = append(turns,
+				events.Event{Type: events.ToolRequested, WorkflowID: workflowID, ToolCallID: callID, Name: "dummy-tool", Args: args},
+				outcome(callID),
+			)
+		}
+		return turns
+	}
+	toolCompleted := func(callID string) events.Event {
+		return events.Event{Type: events.ToolCompleted, WorkflowID: workflowID, ToolCallID: callID, Result: result}
+	}
+	toolFailed := func(callID string) events.Event {
+		return events.Event{Type: events.ToolFailed, WorkflowID: workflowID, ToolCallID: callID, Error: toolErrorText}
+	}
+
+	tests := []struct {
+		name           string
+		replies        []fakeReply
+		toolErr        error
+		wantModelCalls int
+		wantEvents     []events.Event
+	}{
+		{
+			name:           "model never stops calling tools",
+			replies:        toolCallReplies(10),
+			wantModelCalls: 10,
+			wantEvents:     slices.Concat(started, toolTurns(10, toolCompleted), hitTheLimit),
+		},
+		{
+			name:           "model answers on the last step",
+			replies:        append(toolCallReplies(9), fakeReply{message: agent.Message{Content: "done", Role: "assistant"}}),
+			wantModelCalls: 10,
+			wantEvents:     slices.Concat(started, toolTurns(9, toolCompleted), answered),
+		},
+		{
+			name:           "tool keeps failing",
+			replies:        toolCallReplies(10),
+			toolErr:        errors.New(toolErrorText),
+			wantModelCalls: 10,
+			wantEvents:     slices.Concat(started, toolTurns(10, toolFailed), hitTheLimit),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
+			defer cancel()
+
+			fModel := newFakeModel(tt.replies...)
+			a := agent.NewAgent("", fModel)
+			a.Tools = []agent.Tool{{
+				Name: "dummy-tool",
+				Run: func(ctx context.Context, args json.RawMessage) (any, error) {
+					return map[string]bool{"ok": true}, tt.toolErr
+				},
+			}}
+
+			backChannel := make(chan events.Event, len(tt.wantEvents))
+
+			a.Run(ctx, workflowID, input, fakeEmitter(backChannel, t))
+			close(backChannel)
+
+			var gotEvents []events.Event
+			for event := range backChannel {
+				gotEvents = append(gotEvents, event)
+			}
+			if !reflect.DeepEqual(gotEvents, tt.wantEvents) {
+				t.Fatalf("got events %+v. expected %+v", gotEvents, tt.wantEvents)
+			}
+
+			if got := len(fModel.nextCallsCh); got != tt.wantModelCalls {
+				t.Fatalf("model called %d times. expected %d", got, tt.wantModelCalls)
+			}
+		})
 	}
 }
