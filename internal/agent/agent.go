@@ -140,13 +140,7 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 			})
 			return
 		}
-		// TODO: handle these cases (and possibly a bit more)
-		// 1 - model completed
-		// 2 - tool call
-		// 3 - tool result
-		// 4 - err (already handled above and in some other places)
 
-		// for now only one case - model completed
 		modelResponse := getModelResponse(message)
 		switch modelResponse {
 		case ModelCompleted:
