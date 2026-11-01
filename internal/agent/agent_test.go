@@ -206,11 +206,11 @@ func TestAgentPassTools(t *testing.T) {
 	workflowID := "1234"
 	expectedEmits := 3
 	fModel := newFakeModel(fakeReply{message: agent.Message{Content: "done", Role: "assistant"}})
-	a := agent.NewAgent("", fModel)
 	dummyTool := agent.Tool{
 		Name: "dummy-tool",
 	}
-	a.Tools = []agent.Tool{dummyTool}
+	tools := []agent.Tool{dummyTool}
+	a := agent.NewAgent("", fModel, tools...)
 
 	// execute
 	backChannel := make(chan events.Event, expectedEmits)
@@ -280,14 +280,14 @@ func TestAgentRunsToolCallThenAnswers(t *testing.T) {
 	)
 
 	var gotArgs json.RawMessage
-	a := agent.NewAgent("", fModel)
-	a.Tools = []agent.Tool{{
+	tools := []agent.Tool{{
 		Name: "dummy-tool",
 		Run: func(ctx context.Context, toolArgs json.RawMessage) (any, error) {
 			gotArgs = toolArgs
 			return map[string]bool{"ok": true}, nil
 		},
 	}}
+	a := agent.NewAgent("", fModel, tools...)
 
 	backChannel := make(chan events.Event, 5)
 	a.Run(ctx, workflowID, input, fakeEmitter(backChannel, t))
@@ -349,7 +349,6 @@ func TestAgentRunsSeveralToolCallsInOneTurn(t *testing.T) {
 	)
 
 	workflowID := "1234"
-	a := agent.NewAgent("", fModel)
 
 	dummyTool := agent.Tool{
 		Name: "dummy-tool",
@@ -364,7 +363,8 @@ func TestAgentRunsSeveralToolCallsInOneTurn(t *testing.T) {
 			return map[string]string{"ok": "tool-2"}, nil
 		},
 	}
-	a.Tools = []agent.Tool{dummyTool, dummyTool2}
+	tools := []agent.Tool{dummyTool, dummyTool2}
+	a := agent.NewAgent("", fModel, tools...)
 
 	wantEvents := []events.Event{
 		{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
@@ -502,14 +502,14 @@ func TestAgentContinuesWhenToolCallErrors(t *testing.T) {
 			)
 
 			toolRan := false
-			a := agent.NewAgent("", fModel)
-			a.Tools = []agent.Tool{{
+			tools := []agent.Tool{{
 				Name: "dummy-tool",
 				Run: func(ctx context.Context, args json.RawMessage) (any, error) {
 					toolRan = true
 					return tt.toolResult, tt.toolErr
 				},
 			}}
+			a := agent.NewAgent("", fModel, tools...)
 
 			backChannel := make(chan events.Event, len(tt.wantEvents))
 
@@ -568,8 +568,7 @@ func TestAgentRunsSecondToolCallWhenFirstFails(t *testing.T) {
 		fakeReply{message: agent.Message{Content: "done", Role: "assistant"}},
 	)
 
-	a := agent.NewAgent("", fModel)
-	a.Tools = []agent.Tool{
+	tools := []agent.Tool{
 		{
 			Name: "failing-tool",
 			Run: func(ctx context.Context, args json.RawMessage) (any, error) {
@@ -583,6 +582,7 @@ func TestAgentRunsSecondToolCallWhenFirstFails(t *testing.T) {
 			},
 		},
 	}
+	a := agent.NewAgent("", fModel, tools...)
 
 	wantEvents := []events.Event{
 		{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
@@ -699,13 +699,13 @@ func TestAgentStepLimit(t *testing.T) {
 			defer cancel()
 
 			fModel := newFakeModel(tt.replies...)
-			a := agent.NewAgent("", fModel)
-			a.Tools = []agent.Tool{{
+			tools := []agent.Tool{{
 				Name: "dummy-tool",
 				Run: func(ctx context.Context, args json.RawMessage) (any, error) {
 					return map[string]bool{"ok": true}, tt.toolErr
 				},
 			}}
+			a := agent.NewAgent("", fModel, tools...)
 
 			backChannel := make(chan events.Event, len(tt.wantEvents))
 
@@ -794,7 +794,6 @@ func TestAgentStopsWhenContextIsCancelled(t *testing.T) {
 			defer cancel()
 
 			fModel := newFakeModel(tt.replies...)
-			a := agent.NewAgent("", fModel)
 
 			var toolsRan []string
 			newTool := func(name string) agent.Tool {
@@ -809,7 +808,8 @@ func TestAgentStopsWhenContextIsCancelled(t *testing.T) {
 					},
 				}
 			}
-			a.Tools = []agent.Tool{newTool("first-tool"), newTool("second-tool")}
+			tools := []agent.Tool{newTool("first-tool"), newTool("second-tool")}
+			a := agent.NewAgent("", fModel, tools...)
 
 			backChannel := make(chan events.Event, len(tt.wantEvents))
 
@@ -927,6 +927,40 @@ func TestAgentSendsSystemPromptFirst(t *testing.T) {
 			firstCall := <-fModel.nextCallsCh
 			if !reflect.DeepEqual(firstCall.messages, tt.wantMessages) {
 				t.Fatalf("model got messages %+v. expected %+v", firstCall.messages, tt.wantMessages)
+			}
+		})
+	}
+}
+
+func TestAgentWithoutAModelFailsCleanly(t *testing.T) {
+	workflowID := "1234"
+	input := "hi"
+
+	tests := []struct {
+		name  string
+		agent *agent.Agent
+	}{
+		{name: "zero value", agent: &agent.Agent{}},
+		{name: "nil model", agent: agent.NewAgent("", nil)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wantEvents := []events.Event{
+				{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
+				{Type: events.WorkflowFailed, WorkflowID: workflowID, Error: "agent has no model"},
+			}
+			backChannel := make(chan events.Event, len(wantEvents))
+
+			tt.agent.Run(t.Context(), workflowID, input, fakeEmitter(backChannel, t))
+			close(backChannel)
+
+			var gotEvents []events.Event
+			for event := range backChannel {
+				gotEvents = append(gotEvents, event)
+			}
+			if !reflect.DeepEqual(gotEvents, wantEvents) {
+				t.Fatalf("got events %+v. expected %+v", gotEvents, wantEvents)
 			}
 		})
 	}
