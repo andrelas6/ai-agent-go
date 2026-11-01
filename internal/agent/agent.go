@@ -121,6 +121,15 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 	})
 
 	for step := 0; step < a.MaxSteps; step++ {
+		if err := ctx.Err(); err != nil {
+			emit(events.Event{
+				WorkflowID: workflowID,
+				Type:       events.WorkflowFailed,
+				Error:      err.Error(),
+			})
+			return
+		}
+
 		// model run
 		message, err := a.Model.Next(ctx, slices.Clone(messages), slices.Clone(a.Tools))
 		if err != nil {
@@ -156,6 +165,16 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 		case ToolRequested:
 			messages = append(messages, message)
 			for _, call := range message.ToolCalls {
+				// if context is cancelled, the tool call needs to stop
+				if err := ctx.Err(); err != nil {
+					emit(events.Event{
+						WorkflowID: workflowID,
+						Type:       events.WorkflowFailed,
+						Error:      err.Error(),
+					})
+					return
+				}
+
 				emit(events.Event{
 					WorkflowID: workflowID,
 					Type:       events.ToolRequested,

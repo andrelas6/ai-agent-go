@@ -58,15 +58,15 @@ type fakeModel struct {
 
 func (f fakeModel) Next(ctx context.Context, messages []agent.Message, tools []agent.Tool) (agent.Message, error) {
 	select {
-	case <-ctx.Done():
-		return agent.Message{}, ctx.Err()
 	case f.nextCallsCh <- nextCalls{messages: messages, tools: tools}:
-		select {
-		case reply := <-f.repliesCh:
-			return reply.message, reply.err
-		default:
-			return agent.Message{}, errors.New("fakeModel: no scripted reply left")
-		}
+	default:
+		return agent.Message{}, errors.New("fakeModel: called too many times")
+	}
+	select {
+	case reply := <-f.repliesCh:
+		return reply.message, reply.err
+	default:
+		return agent.Message{}, errors.New("fakeModel: no scripted reply left")
 	}
 }
 
@@ -724,5 +724,163 @@ func TestAgentStepLimit(t *testing.T) {
 				t.Fatalf("model called %d times. expected %d", got, tt.wantModelCalls)
 			}
 		})
+	}
+}
+
+func TestAgentStopsWhenContextIsCancelled(t *testing.T) {
+	workflowID := "1234"
+	input := "hi"
+	args := json.RawMessage(`{"q":"x"}`)
+	result := json.RawMessage(`{"ok":true}`)
+
+	started := events.Event{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input}
+	cancelled := events.Event{Type: events.WorkflowFailed, WorkflowID: workflowID, Error: "context canceled"}
+	firstToolRequested := events.Event{Type: events.ToolRequested, WorkflowID: workflowID, ToolCallID: "call-1", Name: "first-tool", Args: args}
+	firstToolCompleted := events.Event{Type: events.ToolCompleted, WorkflowID: workflowID, ToolCallID: "call-1", Result: result}
+	secondToolRequested := events.Event{Type: events.ToolRequested, WorkflowID: workflowID, ToolCallID: "call-2", Name: "second-tool", Args: args}
+	secondToolCompleted := events.Event{Type: events.ToolCompleted, WorkflowID: workflowID, ToolCallID: "call-2", Result: result}
+	done := fakeReply{message: agent.Message{Content: "done", Role: "assistant"}}
+
+	tests := []struct {
+		name            string
+		cancelBeforeRun bool
+		replies         []fakeReply
+		cancellingTool  string
+		wantToolsRan    []string
+		wantModelCalls  int
+		wantEvents      []events.Event
+	}{
+		{
+			name:            "cancelled before the run starts",
+			cancelBeforeRun: true,
+			replies:         []fakeReply{done},
+			wantToolsRan:    nil,
+			wantModelCalls:  0,
+			wantEvents:      []events.Event{started, cancelled},
+		},
+		{
+			name: "cancelled during the first of two tools",
+			replies: []fakeReply{
+				{message: agent.Message{Role: "assistant", ToolCalls: []agent.ToolCall{
+					{ID: "call-1", Name: "first-tool", Args: args},
+					{ID: "call-2", Name: "second-tool", Args: args},
+				}}},
+				done,
+			},
+			cancellingTool: "first-tool",
+			wantToolsRan:   []string{"first-tool"},
+			wantModelCalls: 1,
+			wantEvents:     []events.Event{started, firstToolRequested, firstToolCompleted, cancelled},
+		},
+		{
+			name: "cancelled during the last tool of a turn",
+			replies: []fakeReply{
+				{message: agent.Message{Role: "assistant", ToolCalls: []agent.ToolCall{
+					{ID: "call-1", Name: "first-tool", Args: args},
+					{ID: "call-2", Name: "second-tool", Args: args},
+				}}},
+				done,
+			},
+			cancellingTool: "second-tool",
+			wantToolsRan:   []string{"first-tool", "second-tool"},
+			wantModelCalls: 1,
+			wantEvents:     []events.Event{started, firstToolRequested, firstToolCompleted, secondToolRequested, secondToolCompleted, cancelled},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
+			defer cancel()
+
+			fModel := newFakeModel(tt.replies...)
+			a := agent.NewAgent("", fModel)
+
+			var toolsRan []string
+			newTool := func(name string) agent.Tool {
+				return agent.Tool{
+					Name: name,
+					Run: func(ctx context.Context, args json.RawMessage) (any, error) {
+						toolsRan = append(toolsRan, name)
+						if name == tt.cancellingTool {
+							cancel()
+						}
+						return map[string]bool{"ok": true}, nil
+					},
+				}
+			}
+			a.Tools = []agent.Tool{newTool("first-tool"), newTool("second-tool")}
+
+			backChannel := make(chan events.Event, len(tt.wantEvents))
+
+			if tt.cancelBeforeRun {
+				cancel()
+			}
+			a.Run(ctx, workflowID, input, fakeEmitter(backChannel, t))
+			close(backChannel)
+
+			var gotEvents []events.Event
+			for event := range backChannel {
+				gotEvents = append(gotEvents, event)
+			}
+			if !reflect.DeepEqual(gotEvents, tt.wantEvents) {
+				t.Fatalf("got events %+v. expected %+v", gotEvents, tt.wantEvents)
+			}
+
+			if !reflect.DeepEqual(toolsRan, tt.wantToolsRan) {
+				t.Fatalf("tools ran %v. expected %v", toolsRan, tt.wantToolsRan)
+			}
+
+			if got := len(fModel.nextCallsCh); got != tt.wantModelCalls {
+				t.Fatalf("model called %d times. expected %d", got, tt.wantModelCalls)
+			}
+		})
+	}
+}
+
+type blockingModel struct {
+	started chan struct{}
+}
+
+// don't process any messages - just "waits to be cancelled"
+// so that the cancelling of a model while it's still in transit can be tested
+func (m blockingModel) Next(ctx context.Context, messages []agent.Message, tools []agent.Tool) (agent.Message, error) {
+	close(m.started)
+	select {
+	case <-ctx.Done():
+		return agent.Message{}, ctx.Err()
+	case <-time.After(time.Second):
+		return agent.Message{}, errors.New("blockingModel: context never cancelled")
+	}
+}
+
+func TestAgentStopsWhenCancelledDuringModelCall(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	workflowID := "1234"
+	input := "hi"
+	model := blockingModel{started: make(chan struct{})}
+	a := agent.NewAgent("", model)
+
+	wantEvents := []events.Event{
+		{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
+		{Type: events.WorkflowFailed, WorkflowID: workflowID, Error: "context canceled"},
+	}
+	backChannel := make(chan events.Event, len(wantEvents))
+
+	go func() {
+		<-model.started
+		cancel()
+	}()
+	a.Run(ctx, workflowID, input, fakeEmitter(backChannel, t))
+	close(backChannel)
+
+	var gotEvents []events.Event
+	for event := range backChannel {
+		gotEvents = append(gotEvents, event)
+	}
+	if !reflect.DeepEqual(gotEvents, wantEvents) {
+		t.Fatalf("got events %+v. expected %+v", gotEvents, wantEvents)
 	}
 }
