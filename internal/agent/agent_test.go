@@ -1060,3 +1060,44 @@ func TestAgentRunsToolCallsWhateverTheFinishReason(t *testing.T) {
 		t.Fatalf("got events %+v. expected %+v", gotEvents, wantEvents)
 	}
 }
+
+func TestAgentShowsTextSentWithToolCalls(t *testing.T) {
+	workflowID := "1234"
+	input := "hi"
+	args := json.RawMessage(`{"q":"x"}`)
+	fModel := newFakeModel(
+		fakeReply{message: agent.Message{
+			Role:      "assistant",
+			Content:   "let me check that",
+			ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "dummy-tool", Args: args}},
+		}},
+		fakeReply{message: agent.Message{Content: "done", Role: "assistant"}},
+	)
+	tool := agent.Tool{
+		Name: "dummy-tool",
+		Run: func(ctx context.Context, args json.RawMessage) (any, error) {
+			return map[string]bool{"ok": true}, nil
+		},
+	}
+	a := agent.NewAgent("", fModel, tool)
+
+	wantEvents := []events.Event{
+		{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
+		{Type: events.ModelDelta, WorkflowID: workflowID, Text: "let me check that"},
+		{Type: events.ToolRequested, WorkflowID: workflowID, ToolCallID: "call-1", Name: "dummy-tool", Args: args},
+		{Type: events.ToolCompleted, WorkflowID: workflowID, ToolCallID: "call-1", Result: json.RawMessage(`{"ok":true}`)},
+		{Type: events.ModelCompleted, WorkflowID: workflowID, Text: "done"},
+		{Type: events.WorkflowCompleted, WorkflowID: workflowID, Output: "done"},
+	}
+	backChannel := make(chan events.Event, len(wantEvents))
+	a.Run(t.Context(), workflowID, input, fakeEmitter(backChannel, t))
+	close(backChannel)
+
+	var gotEvents []events.Event
+	for event := range backChannel {
+		gotEvents = append(gotEvents, event)
+	}
+	if !reflect.DeepEqual(gotEvents, wantEvents) {
+		t.Fatalf("got events %+v. expected %+v", gotEvents, wantEvents)
+	}
+}

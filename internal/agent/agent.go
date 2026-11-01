@@ -172,6 +172,13 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 			return
 		case ToolRequested:
 			messages = append(messages, message)
+			if message.Content != "" {
+				emit(events.Event{
+					WorkflowID: workflowID,
+					Type:       events.ModelDelta,
+					Text:       message.Content,
+				})
+			}
 			for _, call := range message.ToolCalls {
 				// if context is cancelled, the tool call needs to stop
 				if err := ctx.Err(); err != nil {
