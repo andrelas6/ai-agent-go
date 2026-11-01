@@ -884,3 +884,50 @@ func TestAgentStopsWhenCancelledDuringModelCall(t *testing.T) {
 		t.Fatalf("got events %+v. expected %+v", gotEvents, wantEvents)
 	}
 }
+
+func TestAgentSendsSystemPromptFirst(t *testing.T) {
+	input := "hi"
+
+	tests := []struct {
+		name         string
+		systemPrompt string
+		wantMessages []agent.Message
+	}{
+		{
+			name:         "prompt is set",
+			systemPrompt: "be helpful",
+			wantMessages: []agent.Message{
+				{Role: "system", Content: "be helpful"},
+				{Role: "user", Content: input},
+			},
+		},
+		{
+			name:         "prompt is empty",
+			systemPrompt: "",
+			wantMessages: []agent.Message{
+				{Role: "user", Content: input},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
+			defer cancel()
+
+			fModel := newFakeModel(fakeReply{message: agent.Message{Content: "done", Role: "assistant"}})
+			a := agent.NewAgent(tt.systemPrompt, fModel)
+
+			backChannel := make(chan events.Event, 3)
+			a.Run(ctx, "1234", input, fakeEmitter(backChannel, t))
+
+			if got := len(fModel.nextCallsCh); got != 1 {
+				t.Fatalf("model called %d times. expected 1", got)
+			}
+			firstCall := <-fModel.nextCallsCh
+			if !reflect.DeepEqual(firstCall.messages, tt.wantMessages) {
+				t.Fatalf("model got messages %+v. expected %+v", firstCall.messages, tt.wantMessages)
+			}
+		})
+	}
+}
