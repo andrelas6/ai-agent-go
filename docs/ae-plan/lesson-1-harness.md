@@ -169,7 +169,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 | — | PR #7 review fixes | ✅ Done | [andrelas6/ai-agent-go#8](https://github.com/andrelas6/ai-agent-go/pull/8), `e8a95f3` |
 | 5 | `agent.Run` with fakes | ✅ Done | [andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14), merged (`6999446`). Planned in detail in `ae-plan/stub-agent-loop.md` |
 | — | PR #14 review fixes | ✅ Done | [andrelas6/ai-agent-go#15](https://github.com/andrelas6/ai-agent-go/pull/15), merged (`74d959b`). Reviewed in `docs/ae-review/pr-14.md` |
-| 6 | Real tools and system prompt | ✅ Done, not merged | branch `lesson-1-tools`. Planned in detail in `ae-plan/lesson-1-tools.md` |
+| 6 | Real tools and system prompt | ✅ Done | [andrelas6/ai-agent-go#16](https://github.com/andrelas6/ai-agent-go/pull/16), merged (`ff7c88e`). Planned in detail in `ae-plan/lesson-1-tools.md` |
 | 7 | Real OpenRouter model, wired into `agent-server` | ⏳ Not started | |
 | 8 | `agent-cli` | ⏳ Not started | |
 
@@ -198,6 +198,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
   - a bad category.
   
   Every schema says `additionalProperties: false` and `minLength: 1`.
+- **Where it differs from the course:** zod drops unknown keys and accepts an empty string. We reject both. The tool names, descriptions, knowledge base articles, result JSON and the system prompt are the course's, word for word.
 - **Handed on to subtask 7:** wire it with `handlers.NewMux(ctx, bus, agents.NewSupportAgent(model).Run)`.
 
 **PR #7 review follow-ups** (`docs/ae-review/pr-7.md`):
@@ -245,7 +246,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
    - **When this lands:** the two-tab, reload-mid-run and Clear checks from the ae-init pass. *These browser checks still haven't been run by hand.*
 5. **`agent.Run` with a scripted fake model and fake tools.** ✅ Done ([andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14)). All the agent-loop tests above. Remove `internal/runtime/`.
    - **When this lands:** `agent-server` still runs the stub; the loop is covered by tests only.
-6. **The real Lesson 1 tools and system prompt.** ✅ Done on branch `lesson-1-tools` (`ae-plan/lesson-1-tools.md`). They're used through `agents.NewSupportAgent(model)`.
+6. **The real Lesson 1 tools and system prompt.** ✅ Done ([andrelas6/ai-agent-go#16](https://github.com/andrelas6/ai-agent-go/pull/16), `ae-plan/lesson-1-tools.md`). They're used through `agents.NewSupportAgent(model)`.
 7. **The real OpenRouter model** (`OPENROUTER_MODEL`), tested against `httptest`. Wire `agents.NewSupportAgent(model).Run` into `agent-server` in place of the stub.
    - **When this lands:** the sample task runs end to end in the inspector.
 8. **`agent-cli`.** The task is all of stdin up to EOF, there's one readable line per event, and the same `agent.Run` runs underneath. Then add up the diff.

@@ -1,6 +1,6 @@
 # ae-plan: The Lesson 1 tools and system prompt
 
-> **Status:** Done (subtasks 1–5, layout changed after subtask 2)
+> **Status:** Done (subtasks 1–5, layout changed after subtask 2), merged in [andrelas6/ai-agent-go#16](https://github.com/andrelas6/ai-agent-go/pull/16) as `ff7c88e`
 > **Last updated:** 2026-11-02
 > **From:** ae-init/lesson-1-tools.md, which is subtask 6 of ae-plan/lesson-1-harness.md, on `main` at `0958115`
 
