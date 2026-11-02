@@ -690,6 +690,8 @@ func (b *lockedBuffer) String() string {
 	return b.buf.String()
 }
 
+// Scenario: a runner emits tool.failed, workflow.failed and workflow.completed.
+// Outcome: both failures are written to the server log with workflow id and error; the completed event is not.
 func TestFailureEventsReachTheServerLog(t *testing.T) {
 	logs := &lockedBuffer{}
 	previous := log.Writer()

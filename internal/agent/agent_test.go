@@ -69,6 +69,8 @@ func (f fakeModel) Next(ctx context.Context, messages []agent.Message, tools []a
 	}
 }
 
+// Scenario: the model answers the task straight away with text, no tools.
+// Outcome: started, model.completed, workflow.completed with that text; the model got only the user message.
 func TestAgentRunBasic(t *testing.T) {
 	// setup
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
@@ -141,6 +143,8 @@ func TestAgentRunBasic(t *testing.T) {
 
 }
 
+// Scenario: the model call returns an error.
+// Outcome: started, then workflow.failed with the error text; the model is not called again.
 func TestAgentEmitErrorWhenModelErrors(t *testing.T) {
 	// setup
 	expectedEmitterCalls := 2
@@ -198,6 +202,8 @@ func TestAgentEmitErrorWhenModelErrors(t *testing.T) {
 	}
 }
 
+// Scenario: the agent has a tool and the model answers straight away.
+// Outcome: the model receives exactly the agent's tool list.
 func TestAgentPassTools(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
 	defer cancel()
@@ -228,6 +234,8 @@ func TestAgentPassTools(t *testing.T) {
 }
 
 // TODO: test will have to be refactored because response with tool calls will be handled
+// Scenario: the model replies with no text and no tool calls.
+// Outcome: one workflow.failed saying so, and the model is called once.
 func TestAgentFailsOnceOnUnknownModelResponse(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
 	defer cancel()
@@ -262,6 +270,8 @@ func TestAgentFailsOnceOnUnknownModelResponse(t *testing.T) {
 	}
 }
 
+// Scenario: the model calls one tool, then answers with text.
+// Outcome: requested and completed events for the call, and the second model call sees the call and its result.
 func TestAgentRunsToolCallThenAnswers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
 	defer cancel()
@@ -327,6 +337,8 @@ func TestAgentRunsToolCallThenAnswers(t *testing.T) {
 	}
 }
 
+// Scenario: the model asks for two different tools in one reply, then answers.
+// Outcome: each call runs in order with its own result, and the next model call sees one tool message per call.
 func TestAgentRunsSeveralToolCallsInOneTurn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
 	defer cancel()
@@ -406,6 +418,8 @@ func TestAgentRunsSeveralToolCallsInOneTurn(t *testing.T) {
 	}
 }
 
+// Scenario: a tool call fails: unknown tool, tool error, no arguments, bad JSON arguments or an unmarshalable result.
+// Outcome: tool.failed with the reason, the error goes back to the model, and the run continues to the answer.
 func TestAgentContinuesWhenToolCallErrors(t *testing.T) {
 	workflowID := "1234"
 	input := "hi"
@@ -547,6 +561,8 @@ func TestAgentContinuesWhenToolCallErrors(t *testing.T) {
 	}
 }
 
+// Scenario: the model asks for two tools in one reply and the first one fails.
+// Outcome: the second still runs, and the model gets an error message for the first and a result for the second.
 func TestAgentRunsSecondToolCallWhenFirstFails(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
 	defer cancel()
@@ -622,6 +638,8 @@ func TestAgentRunsSecondToolCallWhenFirstFails(t *testing.T) {
 	}
 }
 
+// Scenario: the model keeps calling tools for 10 turns, with tools that work or keep failing, or answers on turn 10.
+// Outcome: workflow.failed with the step-limit message after exactly 10 model calls, or a normal finish on turn 10.
 func TestAgentStepLimit(t *testing.T) {
 	workflowID := "1234"
 	input := "hi"
@@ -727,6 +745,8 @@ func TestAgentStepLimit(t *testing.T) {
 	}
 }
 
+// Scenario: the context is cancelled before the run, during the first of two tools, or during the last tool of a turn.
+// Outcome: workflow.failed with "context canceled", and no tool or model call starts after the cancel.
 func TestAgentStopsWhenContextIsCancelled(t *testing.T) {
 	workflowID := "1234"
 	input := "hi"
@@ -854,6 +874,8 @@ func (m blockingModel) Next(ctx context.Context, messages []agent.Message, tools
 	}
 }
 
+// Scenario: the context is cancelled while the model call is still waiting.
+// Outcome: the model call returns the context error and the run ends in workflow.failed.
 func TestAgentStopsWhenCancelledDuringModelCall(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -885,6 +907,8 @@ func TestAgentStopsWhenCancelledDuringModelCall(t *testing.T) {
 	}
 }
 
+// Scenario: the agent has a system prompt, or an empty one.
+// Outcome: the model gets the system prompt before the user message, or no system message at all.
 func TestAgentSendsSystemPromptFirst(t *testing.T) {
 	input := "hi"
 
@@ -932,6 +956,8 @@ func TestAgentSendsSystemPromptFirst(t *testing.T) {
 	}
 }
 
+// Scenario: the agent has no model: a zero-value Agent, or NewAgent with nil.
+// Outcome: started, then workflow.failed "agent has no model", with no panic.
 func TestAgentWithoutAModelFailsCleanly(t *testing.T) {
 	workflowID := "1234"
 	input := "hi"
@@ -966,6 +992,8 @@ func TestAgentWithoutAModelFailsCleanly(t *testing.T) {
 	}
 }
 
+// Scenario: the model answers with text but stopped on length, content_filter, error, or a normal stop.
+// Outcome: workflow.failed "model reply was cut off" for the first three, a normal finish for stop.
 func TestAgentHandlesTheModelFinishReason(t *testing.T) {
 	workflowID := "1234"
 	input := "hi"
@@ -1021,6 +1049,8 @@ func TestAgentHandlesTheModelFinishReason(t *testing.T) {
 	}
 }
 
+// Scenario: the model asks for a tool but its reply stopped on length.
+// Outcome: the tool still runs and the run carries on, because the tool calls take priority over the finish reason.
 func TestAgentRunsToolCallsWhateverTheFinishReason(t *testing.T) {
 	workflowID := "1234"
 	input := "hi"
@@ -1061,6 +1091,8 @@ func TestAgentRunsToolCallsWhateverTheFinishReason(t *testing.T) {
 	}
 }
 
+// Scenario: the model sends text together with a tool call.
+// Outcome: model.delta with that text comes before the tool events; the final answer is still model.completed.
 func TestAgentShowsTextSentWithToolCalls(t *testing.T) {
 	workflowID := "1234"
 	input := "hi"
