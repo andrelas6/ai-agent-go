@@ -17,9 +17,7 @@ func TestSupportAgentOffersTheSupportTools(t *testing.T) {
 	defer cancel()
 
 	fM := newFakeModel(fakeReply{message: agents.Message{Content: "done", Role: "assistant"}})
-	calls := make(chan events.Event, 3)
-
-	agents.NewSupportAgent(fM).Run(ctx, "1234", "input", fakeEmitter(calls, t))
+	agents.NewSupportAgent(fM).Run(ctx, "1234", "input", func(events.Event) {})
 
 	select {
 	case nextCall := <-fM.nextCallsCh:
@@ -43,9 +41,7 @@ func TestSupportAgentSendsTheSupportPrompt(t *testing.T) {
 	defer cancel()
 
 	fM := newFakeModel(fakeReply{message: agents.Message{Content: "done", Role: "assistant"}})
-	calls := make(chan events.Event, 3)
-
-	agents.NewSupportAgent(fM).Run(ctx, "1234", "input", fakeEmitter(calls, t))
+	agents.NewSupportAgent(fM).Run(ctx, "1234", "input", func(events.Event) {})
 
 	want := `You are a support triage agent.
 
