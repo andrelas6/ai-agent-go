@@ -13,18 +13,18 @@ type sendResult struct {
 
 func SendReply() Tool {
 	schema := objectSchema(map[string]any{
-		"itemId":  plainString(),
-		"draftId": plainString(),
+		"itemId":  nonEmptyString(),
+		"draftId": nonEmptyString(),
 	}, "itemId", "draftId")
 
 	return Tool{
 		Name:        "sendReply",
 		Description: "Send the drafted reply to the customer. This really emails them.",
 		Parameters:  schema,
-		Run:         decodeStringArgs(schema, send),
+		Run:         decodeStringArgs(schema, runSendReply),
 	}
 }
 
-func send(args sendArgs) (any, error) {
+func runSendReply(args sendArgs) (any, error) {
 	return sendResult{Sent: true, ItemID: args.ItemID, DraftID: args.DraftID}, nil
 }

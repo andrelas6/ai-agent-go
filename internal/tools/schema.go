@@ -18,18 +18,18 @@ func objectSchema(properties map[string]any, required ...string) map[string]any 
 	}
 }
 
-func plainString() map[string]any {
+func nonEmptyString() map[string]any {
 	return map[string]any{"type": "string", "minLength": 1}
 }
 
 func describedString(description string) map[string]any {
-	field := plainString()
+	field := nonEmptyString()
 	field["description"] = description
 	return field
 }
 
 func oneOf(values []string) map[string]any {
-	field := plainString()
+	field := nonEmptyString()
 	field["enum"] = values
 	return field
 }

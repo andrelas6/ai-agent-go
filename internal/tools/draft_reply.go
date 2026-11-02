@@ -12,18 +12,18 @@ type draftResult struct {
 
 func DraftReply() Tool {
 	schema := objectSchema(map[string]any{
-		"itemId":  plainString(),
-		"message": plainString(),
+		"itemId":  nonEmptyString(),
+		"message": nonEmptyString(),
 	}, "itemId", "message")
 
 	return Tool{
 		Name:        "draftReply",
 		Description: "Write a draft reply for a work item. Does not send anything.",
 		Parameters:  schema,
-		Run:         decodeStringArgs(schema, draft),
+		Run:         decodeStringArgs(schema, runDraftReply),
 	}
 }
 
-func draft(args draftArgs) (any, error) {
+func runDraftReply(args draftArgs) (any, error) {
 	return draftResult{OK: true, DraftID: "draft-" + args.ItemID}, nil
 }

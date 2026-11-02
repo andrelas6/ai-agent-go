@@ -33,11 +33,11 @@ func SearchKnowledgeBase() Tool {
 		Name:        "searchKnowledgeBase",
 		Description: "Search the support knowledge base for relevant articles.",
 		Parameters:  schema,
-		Run:         decodeStringArgs(schema, search),
+		Run:         decodeStringArgs(schema, runSearchKnowledgeBase),
 	}
 }
 
-func search(args searchArgs) (any, error) {
+func runSearchKnowledgeBase(args searchArgs) (any, error) {
 	query := strings.ToLower(args.Query)
 	var hits []string
 	for _, a := range knowledgeBase {
