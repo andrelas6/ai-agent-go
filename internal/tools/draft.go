@@ -20,7 +20,7 @@ func DraftReply() Tool {
 		Name:        "draftReply",
 		Description: "Write a draft reply for a work item. Does not send anything.",
 		Parameters:  schema,
-		Run:         strict(schema, draft),
+		Run:         decodeStringArgs(schema, draft),
 	}
 }
 

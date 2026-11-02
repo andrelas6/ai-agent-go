@@ -33,7 +33,7 @@ func oneOf(values []string) map[string]any {
 	return field
 }
 
-func strict[T any](schema map[string]any, run func(T) (any, error)) func(context.Context, json.RawMessage) (any, error) {
+func decodeStringArgs[T any](schema map[string]any, run func(T) (any, error)) func(context.Context, json.RawMessage) (any, error) {
 	properties, _ := schema["properties"].(map[string]any)
 	required, _ := schema["required"].([]string)
 
@@ -42,9 +42,22 @@ func strict[T any](schema map[string]any, run func(T) (any, error)) func(context
 		if err := json.Unmarshal(raw, &fields); err != nil {
 			return nil, err
 		}
+
+		values := make(map[string]string, len(fields))
 		for _, key := range slices.Sorted(maps.Keys(fields)) {
 			if _, ok := properties[key]; !ok {
 				return nil, fmt.Errorf("unknown field %q", key)
+			}
+			var value string
+			if err := json.Unmarshal(fields[key], &value); err != nil {
+				return nil, err
+			}
+			values[key] = value
+		}
+
+		for _, name := range required {
+			if values[name] == "" {
+				return nil, fmt.Errorf("%q is required", name)
 			}
 		}
 
@@ -52,19 +65,6 @@ func strict[T any](schema map[string]any, run func(T) (any, error)) func(context
 		if err := json.Unmarshal(raw, &args); err != nil {
 			return nil, err
 		}
-
-		for _, name := range required {
-			var value string
-			if field, ok := fields[name]; ok {
-				if err := json.Unmarshal(field, &value); err != nil {
-					return nil, err
-				}
-			}
-			if value == "" {
-				return nil, fmt.Errorf("%q is required", name)
-			}
-		}
-
 		return run(args)
 	}
 }

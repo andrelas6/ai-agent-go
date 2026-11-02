@@ -21,7 +21,7 @@ func SendReply() Tool {
 		Name:        "sendReply",
 		Description: "Send the drafted reply to the customer. This really emails them.",
 		Parameters:  schema,
-		Run:         strict(schema, send),
+		Run:         decodeStringArgs(schema, send),
 	}
 }
 
