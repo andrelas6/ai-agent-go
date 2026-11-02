@@ -5,13 +5,33 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
 )
 
 var categories = []string{"billing", "technical", "sales", "other"}
 
 var errNotBuiltYet = errors.New("not built yet")
 
+type classifyArgs struct {
+	ItemID   string `json:"itemId"`
+	Category string `json:"category"`
+}
+
+type classifyResult struct {
+	OK       bool   `json:"ok"`
+	ItemID   string `json:"itemId"`
+	Category string `json:"category"`
+}
+
 func Support() []agent.Tool {
+	classifySchema := objectSchema(map[string]any{
+		"itemId":   plainString(),
+		"category": oneOf(categories),
+	}, "itemId", "category")
+
 	return []agent.Tool{
 		{
 			Name:        "searchKnowledgeBase",
@@ -24,11 +44,8 @@ func Support() []agent.Tool {
 		{
 			Name:        "classifyItem",
 			Description: "Classify a work item into a category.",
-			Parameters: objectSchema(map[string]any{
-				"itemId":   plainString(),
-				"category": oneOf(categories),
-			}, "itemId", "category"),
-			Run: notBuiltYet,
+			Parameters:  classifySchema,
+			Run:         strict(classifySchema, classifyItem),
 		},
 		{
 			Name:        "draftReply",
@@ -78,4 +95,47 @@ func oneOf(values []string) map[string]any {
 
 func notBuiltYet(ctx context.Context, args json.RawMessage) (any, error) {
 	return nil, errNotBuiltYet
+}
+
+func classifyItem(args classifyArgs) (any, error) {
+	if !slices.Contains(categories, args.Category) {
+		return nil, fmt.Errorf("category %q is not one of %s", args.Category, strings.Join(categories, ", "))
+	}
+	return classifyResult{OK: true, ItemID: args.ItemID, Category: args.Category}, nil
+}
+
+func strict[T any](schema map[string]any, run func(T) (any, error)) func(context.Context, json.RawMessage) (any, error) {
+	properties, _ := schema["properties"].(map[string]any)
+	required, _ := schema["required"].([]string)
+
+	return func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return nil, err
+		}
+		for _, key := range slices.Sorted(maps.Keys(fields)) {
+			if _, ok := properties[key]; !ok {
+				return nil, fmt.Errorf("unknown field %q", key)
+			}
+		}
+
+		var args T
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, err
+		}
+
+		for _, name := range required {
+			var value string
+			if field, ok := fields[name]; ok {
+				if err := json.Unmarshal(field, &value); err != nil {
+					return nil, err
+				}
+			}
+			if value == "" {
+				return nil, fmt.Errorf("%q is required", name)
+			}
+		}
+
+		return run(args)
+	}
 }

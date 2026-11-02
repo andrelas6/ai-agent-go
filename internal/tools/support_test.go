@@ -1,8 +1,11 @@
 package tools
 
 import (
+	"andrelas6/ai-agent-go/internal/agent"
+	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -110,6 +113,70 @@ func TestSupportToolSchemas(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("schema = %s, want %s", sent, tt.want)
+			}
+		})
+	}
+}
+
+func findTool(t *testing.T, name string) agent.Tool {
+	t.Helper()
+	for _, tool := range Support() {
+		if tool.Name == name {
+			return tool
+		}
+	}
+	t.Fatalf("Support() has no %s tool", name)
+	return agent.Tool{}
+}
+
+func runTool(t *testing.T, name, args string) (string, error) {
+	t.Helper()
+	result, err := findTool(t, name).Run(context.Background(), json.RawMessage(args))
+	if err != nil {
+		return "", err
+	}
+	sent, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	return string(sent), nil
+}
+
+func TestClassifyItem(t *testing.T) {
+	got, err := runTool(t, "classifyItem", `{"itemId":"item-2","category":"technical"}`)
+	if err != nil {
+		t.Fatalf("classifyItem: %v", err)
+	}
+	if want := `{"ok":true,"itemId":"item-2","category":"technical"}`; got != want {
+		t.Errorf("classifyItem = %s, want %s", got, want)
+	}
+}
+
+func TestClassifyItemRejectsBadInput(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    string
+		wantErr string
+	}{
+		{"missing itemId", `{"category":"billing"}`, `"itemId" is required`},
+		{"missing category", `{"itemId":"item-1"}`, `"category" is required`},
+		{"null itemId", `{"itemId":null,"category":"billing"}`, `"itemId" is required`},
+		{"empty itemId", `{"itemId":"","category":"billing"}`, `"itemId" is required`},
+		{"itemId is a number", `{"itemId":5,"category":"billing"}`, "cannot unmarshal number"},
+		{"unknown field", `{"itemId":"item-1","category":"billing","priority":"high"}`, `unknown field "priority"`},
+		{"key in the wrong case", `{"ItemID":"item-1","category":"billing"}`, `unknown field "ItemID"`},
+		{"not an object", `["item-1","billing"]`, "cannot unmarshal array"},
+		{"category not in the list", `{"itemId":"item-1","category":"refunds"}`, `category "refunds" is not one of billing, technical, sales, other`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := runTool(t, "classifyItem", tt.args)
+			if err == nil {
+				t.Fatalf("classifyItem(%s) = %s, want an error", tt.args, got)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %q, want it to contain %q", err, tt.wantErr)
 			}
 		})
 	}
