@@ -35,8 +35,14 @@ func oneOf(values []string) map[string]any {
 }
 
 func decodeStringArgs[T any](schema map[string]any, run func(T) (any, error)) func(context.Context, json.RawMessage) (any, error) {
-	properties, _ := schema["properties"].(map[string]any)
-	required, _ := schema["required"].([]string)
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		panic("tool schema has no properties map")
+	}
+	required, ok := schema["required"].([]string)
+	if !ok {
+		panic("tool schema has no required list")
+	}
 
 	return func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var fields map[string]json.RawMessage
