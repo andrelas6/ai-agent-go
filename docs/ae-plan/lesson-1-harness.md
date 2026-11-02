@@ -1,7 +1,7 @@
 # ae-plan: Lesson 1 harness in Go (SSE inspector + agent loop)
 
 > **Status:** Reviewed
-> **Last updated:** 2026-10-24
+> **Last updated:** 2026-11-02
 > **From:** ae-init/lesson-1-harness.md
 
 ## What's being built
@@ -156,7 +156,7 @@ Four small Go packages in `internal/`, plus the HTTP handlers in `cmd/agent-serv
 
 Each item is one commit, ordered outside-in. The program builds and runs after every commit.
 
-### Status, 2026-10-27
+### Status, 2026-11-02
 
 | # | Subtask | Status | Where |
 |---|---|---|---|
@@ -166,7 +166,11 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 | 3 | Real endpoints with the course stub agent | ✅ Done | [andrelas6/ai-agent-go#7](https://github.com/andrelas6/ai-agent-go/pull/7), merged. Planned in detail in `ae-plan/sse-events-and-bus.md`; reviewed in `docs/ae-review/pr-7.md` |
 | 4 | A bus you can rely on | ✅ Done | [#9](https://github.com/andrelas6/ai-agent-go/pull/9), [#10](https://github.com/andrelas6/ai-agent-go/pull/10), [#11](https://github.com/andrelas6/ai-agent-go/pull/11), [#12](https://github.com/andrelas6/ai-agent-go/pull/12), [#13](https://github.com/andrelas6/ai-agent-go/pull/13), merged (`78efcad`). Planned in detail in `ae-plan/reliable-bus.md` |
 | — | PR #7 review fixes | ✅ Done | [andrelas6/ai-agent-go#8](https://github.com/andrelas6/ai-agent-go/pull/8), `e8a95f3` |
-| 5–8 | Agent loop, tools, model, CLI | ⏳ Not started | |
+| 5 | `agent.Run` with fakes | ✅ Done | [andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14), merged (`6999446`). Planned in detail in `ae-plan/stub-agent-loop.md` |
+| — | PR #14 review fixes | ✅ Done | [andrelas6/ai-agent-go#15](https://github.com/andrelas6/ai-agent-go/pull/15), merged (`74d959b`). Reviewed in `docs/ae-review/pr-14.md` |
+| 6 | Real tools and system prompt | ⏳ Not started | |
+| 7 | Real OpenRouter model, wired into `agent-server` | ⏳ Not started | |
+| 8 | `agent-cli` | ⏳ Not started | |
 
 **How subtask 3 landed, where it differs from this plan:**
 - The handlers live in a sub-package, `cmd/agent-server/handlers` (`NewMux(ctx, bus, run)`), not in `package main`. It's still under the server's folder and used only by the server, so it follows the layout rule.
@@ -174,6 +178,13 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 - **When a tab's buffer (`SubscriberBuffer = 256`) is full, the bus drops that event for that tab.** That goes against decision C (cut the tab off so it reconnects and catches up). It's fixed in subtask 4.
 - The stub agent is `runStub` in `cmd/agent-server/stub.go`.
 - The browser check from the ae-init (two tabs, Clear, `curl -N`, a bad POST, the old routes returning 404) **hasn't been run by hand yet**.
+
+**How subtask 5 landed, where it differs from this plan:**
+- The loop is a method on an `Agent` struct, not `Run(ctx, id, input, Deps{...})`: `NewAgent(systemPrompt, model)`, then `a.Run(ctx, workflowID, input, emit)`. It has the `handlers.Runner` shape, so subtask 7 passes `a.Run` to `handlers.NewMux` directly.
+- `NewAgent(systemPrompt, model, tools ...Tool)` takes the tools since #15, so subtask 6 passes its four tools in.
+- Handed on to subtask 7: `Model.Next` must pass `ctx` into `Chat.Send`, with a test against an `httptest` server that hangs. Cancelling a real call depends on it.
+- #15 also added a `model.delta` event for text the model sends alongside tool calls. Its display in the inspector hasn't been checked in a browser.
+- A call with no arguments is `tool.failed` with `no arguments sent`, so every tool needs arguments for now. Subtask 6's four tools all take arguments; subtask 7 should check what the provider sends for an empty call.
 
 **PR #7 review follow-ups** (`docs/ae-review/pr-7.md`):
 - ✅ Fixed in [andrelas6/ai-agent-go#8](https://github.com/andrelas6/ai-agent-go/pull/8), merged as `e8a95f3`:
@@ -218,7 +229,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
      - **The 1000-event history cap.** History grows without limit today.
      - **After shutdown, `Subscribe` returns a closed channel**, not `nil`. Today the handler only survives because `ctx.Done()` is already closed.
    - **When this lands:** the two-tab, reload-mid-run and Clear checks from the ae-init pass. *These browser checks still haven't been run by hand.*
-5. **`agent.Run` with a scripted fake model and fake tools.** All the agent-loop tests above. Remove `internal/runtime/`.
+5. **`agent.Run` with a scripted fake model and fake tools.** ✅ Done ([andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14)). All the agent-loop tests above. Remove `internal/runtime/`.
    - **When this lands:** `agent-server` still runs the stub; the loop is covered by tests only.
 6. **The real Lesson 1 tools and system prompt**, replacing the fake tools in the default registry.
 7. **The real OpenRouter model** (`OPENROUTER_MODEL`), tested against `httptest`. Wire `agent.Run` into `agent-server` in place of the stub.
@@ -226,4 +237,4 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 8. **`agent-cli`.** The task is all of stdin up to EOF, there's one readable line per event, and the same `agent.Run` runs underneath. Then add up the diff.
    - **Size:** about 550–650 lines with tests, so over 500. Proposed split into two PRs, each runnable on its own:
      - **PR 1, transport:** subtasks 2–3 landed as [andrelas6/ai-agent-go#7](https://github.com/andrelas6/ai-agent-go/pull/7). Subtask 1 landed separately in the course repo. The rest of subtask 4 landed in #9–#13.
-     - **PR 2, agent loop:** subtasks 5–8.
+     - **PR 2, agent loop:** subtask 5 landed on its own as [andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14), about 230 lines of code and 930 of tests. Subtasks 6–8 come separately, so the 550–650 estimate no longer holds.
