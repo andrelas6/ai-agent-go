@@ -127,7 +127,12 @@ func runSafely(ctx context.Context, runner Runner, workflowID string, input stri
 			})
 		}
 	}()
-	runner(ctx, workflowID, input, emit)
+	runner(ctx, workflowID, input, func(event events.Event) {
+		if event.Type == events.WorkflowFailed || event.Type == events.ToolFailed {
+			log.Printf("workflow %s: %s: %s", event.WorkflowID, event.Type, event.Error)
+		}
+		emit(event)
+	})
 }
 
 func handlePostClear(bus EventBus) func(w http.ResponseWriter, r *http.Request) {

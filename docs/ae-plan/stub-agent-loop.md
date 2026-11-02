@@ -1,7 +1,9 @@
 # ae-plan: The agent loop, under test
 
-> **Status:** Reviewed
-> **Last updated:** 2026-10-27
+> **Status:** Done
+> **Last updated:** 2026-11-01 (all 7 subtasks done)
+> **Progress:** 7 of 7 subtasks done, merged as [andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14). The five main ae-review fixes are in open PR [andrelas6/ai-agent-go#15](https://github.com/andrelas6/ai-agent-go/pull/15): `Agent` fields unexported and `NewAgent` takes the tools (so the Approach section is further out of date), `Message.FinishReason`, server logging of failures, and `model.delta`. The smaller tidy-ups from `ae-review/pr-14.md` come later.
+> **Owner:** André builds it
 > **From:** ae-init/stub-agent-loop.md, which is parent ae-plan/lesson-1-harness.md subtask 5
 
 ## What's being built
@@ -141,26 +143,63 @@ func Run(ctx context.Context, workflowID, input string, deps Deps)
 
 ## Open questions
 
-- **`Run` and `handlers.Runner`.** `Run(ctx, id, input, Deps)` has no return value, matching `Runner`. Parent subtask 7 can wire it in with a closure in `cmd/agent-server/main.go`: `func(ctx, id, in, emit) { agent.Run(ctx, id, in, agent.Deps{..., Emit: emit}) }`. To decide while implementing, as agreed.
+- None. `Run` and `handlers.Runner` is settled: `Agent.Run` is a method with the `Runner` shape, so parent subtask 7 passes `agent.Run` to `handlers.NewMux` directly.
 
 ## Subtasks
 
 Each item is one commit. The program builds and `go test ./...` passes after every commit. `agent-server` keeps running the stub throughout.
 
-1. **`agent.Run` with a model that answers straight away. Delete `internal/runtime/`.**
-   - Adds the types, `Model`, `Deps` and `Run`, plus the test helpers: a scripted fake model that records the messages and tools it was given, and an event recorder that also checks `json.Marshal`.
+1. ✅ **Done (`9b862c3`, `ae880fd`, `a89eaf1`, in PR [andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14), not merged yet).** **`agent.Run` with a model that answers straight away. Delete `internal/runtime/`.**
+   - Adds the types, `Model` and `Run`, plus the test helpers: a fake model that records the messages and tools it was given, and an emitter that also checks `json.Marshal` and fails when more events arrive than expected.
    - Test: `workflow.started` → `model.completed` → `workflow.completed`, and the model received `[user input]` and the tool list.
-   - **When this lands:** `go test ./internal/agent/...` is `ok`, and `internal/runtime` is gone from `go test ./...`.
-2. **One tool call, then an answer.**
+   - `go test ./internal/agent/...` is `ok`, and `internal/runtime` is gone from `go test ./...`.
+   - **Built differently from the plan:**
+     - An `Agent` struct (`Model`, `MaxSteps`, `SystemPrompt`, `Tools`), built with `NewAgent(systemPrompt, model)`, with `Run(ctx, workflowID, input, emit)` as a method, instead of `Run(ctx, workflowID, input, Deps{...})`. The Approach section above still shows `Deps`.
+     - Three commits instead of one.
+     - The events are recorded through a channel with a timeout, not a slice.
+   - **Landed early:**
+     - the model-error path and its test, from subtask 5;
+     - the step-limit branch, without a test, from subtask 5;
+     - the `SystemPrompt` field and its code, without a test, from subtask 7.
+   - **Left over, for later subtasks:**
+     - `TestAgentRunBasic` has no explicit check that the model is called exactly once. A second call is only caught indirectly, because it runs out of scripted replies.
+     - `messages = append(messages, message)` before the `return` in the final-answer case does nothing.
+2. ✅ **Done (`3a6bda5`, `370131a`, in the same PR).** **One tool call, then an answer.**
    - `tool.requested`/`tool.completed`, plus the assistant message and the tool message with the matching `ToolCallID` on the second model call.
-3. **Several tool calls in one turn, in order.**
-4. **Tool failures keep the loop going:** an unknown tool, a tool error, invalid argument JSON.
-5. **Ending badly:**
+   - The fake model got scripted replies: each test passes them in order, and an error or a tool call is just another reply.
+   - **Decided along the way:**
+     - `Run` keeps the `ModelResponse` type and `getModelResponse` that André added (`616a64e`, with the `return` fix in `abd9297`).
+     - A reply with no text and no tool calls is `Unknown` and fails the run. The course would treat it as an empty final answer. André chose to keep failing.
+3. ✅ **Done (`bb55e9b`, in the same PR).** **Several tool calls in one turn, in order.**
+   - Test only, since the loop already handled it: `TestAgentRunsSeveralToolCallsInOneTurn`. One reply with two calls gives one `tool.requested`/`tool.completed` pair per call, and the next model call sees one `tool` message per call, in the model's order.
+   - The two tools return different results, so a mix-up between them fails the test.
+4. ✅ **Done (`b6c750b`, in the same PR).** **Tool failures keep the loop going:** an unknown tool, a tool error, invalid argument JSON.
+   - Each failure emits `tool.failed` and adds a `tool` message with `error: <text>`. The loop keeps going, including for the other calls in the same turn.
+   - Tests: `TestAgentContinuesWhenToolCallErrors`, a table with the exact events per case, and `TestAgentRunsSecondToolCallWhenFirstFails`.
+   - Invalid arguments appear in `tool.requested` as a JSON string, so the event always marshals.
+   - **Added beyond the plan:**
+     - A result that won't marshal also gets `tool.failed`, with its own table case.
+     - A call with no arguments gets its own error, `no arguments sent`, and `tool.requested` has no `args`. André's decision. This means every tool needs arguments for now; a tool with no parameters would need this revisited, unless the provider sends `{}`.
+   - **Built differently from the plan:** `runTool` returns the tool's own error text, with no `tool "name":` prefix.
+   - **Left over:** a call with an unknown name and bad arguments reports `unknown tool`, because that check comes first. No test covers the combination.
+5. ✅ **Done (`da93b4b`, in the same PR; the model error landed in subtask 1).** **Ending badly:**
    - a model error;
    - the 10-step limit, with exactly 10 model calls.
-6. **Cancel:**
+   - Test: `TestAgentStepLimit`, a table of three cases. A model that never stops, or a tool that keeps failing, ends in `workflow.failed` after exactly 10 model calls, and an answer on the 10th call completes normally.
+   - The message is now the course's: "Hit the 10-step limit without finishing."
+   - **Known behaviour, left as is:** on the 10th turn the tool still runs, but the model never sees its result, because the run stops there. The course's loop stops at the same limit.
+6. ✅ **Done (`ca9956a`, in the same PR).** **Cancel:**
    - `ctx` cancelled during a model call;
    - `ctx` cancelled between two tool calls.
    - Run with `-race`.
-7. **`SystemPrompt`:** when set, it's the first message.
-   - **Size check after this one:** about 150 lines of production code and 300–350 of tests, so roughly 500 lines including the deleted `runtime.go`. That fits the parent plan's PR 2 (subtasks 5–8, estimated at 550–650 lines). Adding up 5–8 may push PR 2 past 500 lines. If it does, split it at subtask 7 (the real model): PR 2a covers this loop and the real tools, PR 2b the model adapter, the server wiring and the CLI.
+   - `Run` checks `ctx` before each model call and each tool call. A cancelled run ends in `workflow.failed` with `context canceled`. André's decision.
+   - Tests: `TestAgentStopsWhenContextIsCancelled`, a table of three cases (before the run starts, during the first of two tools, during the last tool of a turn), and `TestAgentStopsWhenCancelledDuringModelCall`, with a small `blockingModel`.
+   - **Changed along the way:** the fake model now always records the call and replies, and ignores the context. Its random `select` could hide a missing check, so a test passed or failed from run to run.
+   - **Left over:**
+     - A cancel during the 10th turn reports the step-limit message, not `context canceled`, because the loop ends before the next check. The run still ends in `workflow.failed`. No test covers this.
+     - Aborting a real HTTP call is still parent subtask 7's job: it must pass `ctx` into `Chat.Send`, with a test against a hanging `httptest` server.
+     - On server shutdown, the final event may be dropped, because the bus's `Publish` gives up once the server context is done.
+7. ✅ **Done (in the same PR).** **`SystemPrompt`:** when set, it's the first message.
+   - Test only, since the code landed in subtask 1: `TestAgentSendsSystemPromptFirst`. With a prompt, the model gets it first; with an empty one, there's no system message.
+   - **Size check:** about 230 lines of production code and 930 of tests, against the estimated 150 and 300–350. That's over the 500-line limit. André chose to keep one PR, because the pieces depend on each other and splitting wasn't worth the trouble. The PR description says so.
+   - **For the parent plan:** this PR holds only parent subtask 5, so its PR 2 (subtasks 5–8) estimate of 550–650 lines no longer holds. The real tools, the model and the CLI come separately.

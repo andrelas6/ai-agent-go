@@ -5,13 +5,16 @@ import (
 	"andrelas6/ai-agent-go/internal/bus"
 	"andrelas6/ai-agent-go/internal/events"
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -667,5 +670,59 @@ func readSSEMessage(t *testing.T, r *bufio.Reader) (id, data string) {
 		case strings.HasPrefix(line, "data: "):
 			data = strings.TrimPrefix(line, "data: ")
 		}
+	}
+}
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// Scenario: a runner emits tool.failed, workflow.failed and workflow.completed.
+// Outcome: both failures are written to the server log with workflow id and error; the completed event is not.
+func TestFailureEventsReachTheServerLog(t *testing.T) {
+	logs := &lockedBuffer{}
+	previous := log.Writer()
+	log.SetOutput(logs)
+	t.Cleanup(func() { log.SetOutput(previous) })
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	runner := func(ctx context.Context, workflowID string, input string, emit func(events.Event)) {
+		emit(events.Event{Type: events.ToolFailed, WorkflowID: workflowID, ToolCallID: "call-1", Error: "tool blew up"})
+		emit(events.Event{Type: events.WorkflowFailed, WorkflowID: workflowID, Error: "model is down"})
+		emit(events.Event{Type: events.WorkflowCompleted, WorkflowID: workflowID, Output: "not an error"})
+	}
+	serverURL := newServer(t, ctx, bus.New(ctx), runner)
+
+	stream := openEventStream(t, ctx, serverURL)
+	workflowID := decodeWorkflowID(t, postTask(t, ctx, serverURL, `{"input":"hello"}`))
+	for range 3 {
+		readEvent(t, stream)
+	}
+
+	got := logs.String()
+	for _, want := range []string{
+		"workflow " + workflowID + ": tool.failed: tool blew up",
+		"workflow " + workflowID + ": workflow.failed: model is down",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("logs = %q, want them to contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "workflow.completed") {
+		t.Errorf("logs = %q, should not mention workflow.completed", got)
 	}
 }

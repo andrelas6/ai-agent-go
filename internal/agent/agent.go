@@ -10,10 +10,11 @@ import (
 )
 
 type Message struct {
-	Role       string
-	Content    string
-	ToolCalls  []ToolCall
-	ToolCallID string
+	Role         string
+	Content      string
+	ToolCalls    []ToolCall
+	ToolCallID   string
+	FinishReason string
 }
 
 type ToolCall struct {
@@ -35,18 +36,18 @@ type Model interface {
 
 type Agent struct {
 	// dependencies
-	Model        Model
-	MaxSteps     int
-	SystemPrompt string
-	Tools        []Tool
+	model        Model
+	maxSteps     int
+	systemPrompt string
+	tools        []Tool
 }
 
-func NewAgent(systemPrompt string, model Model) *Agent {
+func NewAgent(systemPrompt string, model Model, tools ...Tool) *Agent {
 	return &Agent{
-		Model:        model,
-		MaxSteps:     10,
-		SystemPrompt: systemPrompt,
-		Tools:        []Tool{},
+		model:        model,
+		maxSteps:     10,
+		systemPrompt: systemPrompt,
+		tools:        tools,
 	}
 }
 
@@ -56,12 +57,16 @@ const (
 	ToolRequested  ModelResponse = "ToolRequested"
 	ToolCompleted  ModelResponse = "ToolCompleted"
 	ModelCompleted ModelResponse = "ModelCompleted"
+	ModelCutOff    ModelResponse = "ModelCutOff"
 	Unknown        ModelResponse = "Unknown"
 )
 
 func getModelResponse(message Message) ModelResponse {
 	if len(message.ToolCalls) > 0 {
 		return ToolRequested
+	}
+	if slices.Contains([]string{"length", "content_filter", "error"}, message.FinishReason) {
+		return ModelCutOff
 	}
 	if message.Content != "" {
 		return ModelCompleted
@@ -70,7 +75,7 @@ func getModelResponse(message Message) ModelResponse {
 }
 
 func (a *Agent) runTool(ctx context.Context, call ToolCall) (json.RawMessage, error) {
-	index := slices.IndexFunc(a.Tools, func(tool Tool) bool { return tool.Name == call.Name })
+	index := slices.IndexFunc(a.tools, func(tool Tool) bool { return tool.Name == call.Name })
 	if index == -1 {
 		return nil, fmt.Errorf("unknown tool %q", call.Name)
 	}
@@ -80,7 +85,7 @@ func (a *Agent) runTool(ctx context.Context, call ToolCall) (json.RawMessage, er
 	if !json.Valid(call.Args) {
 		return nil, errors.New("invalid JSON arguments")
 	}
-	value, err := a.Tools[index].Run(ctx, call.Args)
+	value, err := a.tools[index].Run(ctx, call.Args)
 	if err != nil {
 		return nil, err
 	}
@@ -108,9 +113,18 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 	}
 	emit(eventStarted)
 
-	if len(a.SystemPrompt) > 0 {
+	if a.model == nil {
+		emit(events.Event{
+			WorkflowID: workflowID,
+			Type:       events.WorkflowFailed,
+			Error:      "agent has no model",
+		})
+		return
+	}
+
+	if len(a.systemPrompt) > 0 {
 		messages = append(messages, Message{
-			Content: a.SystemPrompt,
+			Content: a.systemPrompt,
 			Role:    "system",
 		})
 	}
@@ -120,7 +134,7 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 		Role:    "user",
 	})
 
-	for step := 0; step < a.MaxSteps; step++ {
+	for step := 0; step < a.maxSteps; step++ {
 		if err := ctx.Err(); err != nil {
 			emit(events.Event{
 				WorkflowID: workflowID,
@@ -131,7 +145,7 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 		}
 
 		// model run
-		message, err := a.Model.Next(ctx, slices.Clone(messages), slices.Clone(a.Tools))
+		message, err := a.model.Next(ctx, slices.Clone(messages), slices.Clone(a.tools))
 		if err != nil {
 			emit(events.Event{
 				WorkflowID: workflowID,
@@ -158,6 +172,13 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 			return
 		case ToolRequested:
 			messages = append(messages, message)
+			if message.Content != "" {
+				emit(events.Event{
+					WorkflowID: workflowID,
+					Type:       events.ModelDelta,
+					Text:       message.Content,
+				})
+			}
 			for _, call := range message.ToolCalls {
 				// if context is cancelled, the tool call needs to stop
 				if err := ctx.Err(); err != nil {
@@ -204,12 +225,19 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 					ToolCallID: call.ID,
 				})
 			}
+		case ModelCutOff:
+			emit(events.Event{
+				WorkflowID: workflowID,
+				Type:       events.WorkflowFailed,
+				Error:      "model reply was cut off: " + message.FinishReason,
+			})
+			return
 		// unknown is error
 		default:
 			emit(events.Event{
 				WorkflowID: workflowID,
 				Type:       events.WorkflowFailed,
-				Error:      fmt.Sprintf("unknown message %v", message),
+				Error:      "model returned no text and no tool calls",
 			})
 			return
 		}
@@ -220,6 +248,6 @@ func (a *Agent) Run(ctx context.Context, workflowID string, input string, emit f
 	emit(events.Event{
 		WorkflowID: workflowID,
 		Type:       events.WorkflowFailed,
-		Error:      fmt.Sprintf("Hit the %d-step limit without finishing.", a.MaxSteps),
+		Error:      fmt.Sprintf("Hit the %d-step limit without finishing.", a.maxSteps),
 	})
 }

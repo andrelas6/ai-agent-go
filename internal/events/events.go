@@ -8,6 +8,7 @@ const (
 	WorkflowStarted   Type = "workflow.started"
 	WorkflowCompleted Type = "workflow.completed"
 	WorkflowFailed    Type = "workflow.failed"
+	ModelDelta        Type = "model.delta"
 	ModelCompleted    Type = "model.completed"
 	ToolRequested     Type = "tool.requested"
 	ToolCompleted     Type = "tool.completed"
