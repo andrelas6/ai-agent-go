@@ -13,7 +13,7 @@ func TestDecodeStringArgsPanicsOnABrokenSchema(t *testing.T) {
 		wantPanic string
 	}{
 		{"no properties", map[string]any{"type": "object", "required": []string{"itemId"}}, "properties"},
-		{"no required list", map[string]any{"type": "object", "properties": map[string]any{"itemId": plainString()}}, "required"},
+		{"no required list", map[string]any{"type": "object", "properties": map[string]any{"itemId": nonEmptyString()}}, "required"},
 	}
 
 	for _, tt := range tests {
