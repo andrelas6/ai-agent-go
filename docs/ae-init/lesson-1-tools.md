@@ -61,7 +61,7 @@ B (after)
 - For the server check: `go run ./cmd/agent-server` (listens on `:8002`).
 
 **Steps**
-1. `go test -race -v ./internal/tools/... ./internal/agent/...`
+1. `go test -race -v ./internal/tools/... ./internal/agents/...` (the package was `internal/agent` before the layout change)
 2. `go test ./...`
 3. In one shell: `curl -N localhost:8002/api/events`. In another: `curl -X POST localhost:8002/api/tasks -d '{"input":"hi"}'`.
 
@@ -96,7 +96,7 @@ Agreed before this doc:
 - Four tools with the course's names, descriptions, inputs and results. Results are JSON in camelCase, as in the course.
 - JSON schemas are written by hand as `map[string]any`, with `required` and an `enum` for `category`. They are a hand-written equivalent of the course's zod schemas, not a byte-for-byte copy of what the AI SDK emits.
 - The knowledge base is ordered (a slice, not a map), so a query that matches several keys always returns the same articles in the same order.
-- The tools live in `internal/tools`, which both commands will use, behind one constructor such as `tools.Support() []agent.Tool`.
+- The tools live in `internal/tools`, which both commands will use. *Changed after subtask 2:* each tool has its own constructor, and `agents.NewSupportAgent(model)` replaces `tools.Support()`.
 - No safety checks on `sendReply`: the course adds them in later lessons.
 - Out of scope: wiring the tools and prompt into `agent-server` (subtask 7) and the sample task file (subtask 8). `agent-server` keeps `runStub`.
 
@@ -111,6 +111,7 @@ Settled with André on 2026-11-02:
   
   This is stricter than zod, which accepts `""` and strips unknown fields. In Go, a plain `json.Unmarshal` into `string` fields reads a missing or `null` field as `""`, so the empty-string check also covers those, and unknown fields need `DisallowUnknownFields`.
 - **The system prompt lives in `internal/agent`**, as an exported constant with the course's wording, not in `internal/tools`.
+  - *Changed after subtask 2:* `internal/agent` became `internal/agents`, which holds the generic agent and the specific ones. The prompt is `agents.SupportPrompt` in `agents/support.go`, next to `NewSupportAgent(model)`. `internal/tools` holds only tools, one file per tool, and the `Tool` type moved there. See "Layout change" in `ae-plan/lesson-1-tools.md`.
 - **Unit tests only.** No extra test runs the four tools inside `agent.Run`; subtask 5 already covers the loop, and subtask 7 runs them for real.
 
 ## Open questions

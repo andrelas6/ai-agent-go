@@ -1,12 +1,12 @@
 # ae-plan: The Lesson 1 tools and system prompt
 
-> **Status:** Draft
+> **Status:** In progress (subtasks 1–2 done, layout changed)
 > **Last updated:** 2026-11-02
 > **From:** ae-init/lesson-1-tools.md, which is subtask 6 of ae-plan/lesson-1-harness.md, on `main` at `0958115`
 
 ## What's being built
 
-The course's four support-triage tools (`searchKnowledgeBase`, `classifyItem`, `draftReply`, `sendReply`) and its system prompt, in Go. The tools come from one constructor, `tools.Support()`, which subtask 7 will hand to `agent.NewAgent`. They're strict about input. A bad call returns an error, and the loop already turns that into `tool.failed`. Only tests prove it here. The server keeps running the stub, and the CLI is untouched.
+The course's four support-triage tools (`searchKnowledgeBase`, `classifyItem`, `draftReply`, `sendReply`) and its system prompt, in Go. Each tool has its own constructor in `internal/tools`, such as `tools.ClassifyItem()`. The support agent that composes them with the prompt is `agents.NewSupportAgent(model)`, which subtask 7 will run. They're strict about input. A bad call returns an error, and the loop already turns that into `tool.failed`. Only tests prove it here. The server keeps running the stub, and the CLI is untouched.
 
 ## Constraints
 
@@ -22,9 +22,9 @@ The course's four support-triage tools (`searchKnowledgeBase`, `classifyItem`, `
   - a field of the wrong type;
   - an unknown field, or a known one in the wrong case (`ItemID`);
   - a category outside billing, technical, sales and other.
-- **Where things go:**
-  - the tools go in `internal/tools`;
-  - the prompt goes in `internal/agent`, as an exported const.
+- **Where things go** (changed after subtask 2; see "Layout change" below):
+  - `internal/tools` holds only tools, one file per tool, plus the `Tool` type and the shared schema helpers;
+  - `internal/agents` holds the generic agent (the loop, formerly `internal/agent`) and the specific agents built from it. The support agent and its prompt live in `agents/support.go`.
 - **Unit tests only.** No test runs the tools inside `agent.Run`.
 - **Out of scope:**
   - wiring into `agent-server` (subtask 7);
@@ -32,12 +32,21 @@ The course's four support-triage tools (`searchKnowledgeBase`, `classifyItem`, `
   - any safety check on `sendReply`.
 - **No comments** in new code. André's existing comments stay.
 
+## Layout change, 2026-11-02
+
+After subtask 2, André pointed out that `tools/support.go` was really a whole agent hidden in the tools folder: it held the list of tools, and the prompt was going to sit next to it. So the code was restructured into one refactor commit, with no change in behaviour:
+- **Generic agent and specific agents together.** `internal/agent` is renamed to `internal/agents`. `agent.go` (the loop) is the building block, and `support.go` holds `NewSupportAgent(model)`, which composes it with the support tools and, from subtask 5, the support prompt.
+- **`Tool` moved into `tools/tool.go`.** Otherwise `agents` (which uses the tools) and `tools` (which used `agent.Tool`) would import each other. Now `agents` imports `tools`, and `tools` imports nothing of ours.
+- **One file per tool:** `search.go`, `classify.go`, `draft.go`, `send.go`, each with an exported constructor and its own test file. The shared helpers (`objectSchema`, `strict`) are in `schema.go`, and the test helpers in `helpers_test.go`.
+- **`tools.Support()` is gone.** `TestSupportAgentOffersTheSupportTools` in `agents/support_test.go` now checks the four tools and their order, by looking at what the fake model is offered.
+- An alternative was kept in mind: a sub-folder per specific agent (`internal/agents/support`), with `Tool` staying in `agents`. We can move to it if specific agents grow to several files each.
+
 ## What I found in the codebase
 
 - **`internal/agent/agent.go`**:
   - `Tool{Name, Description, Parameters map[string]any, Run func(ctx, json.RawMessage) (any, error)}`;
   - `runTool` rejects an unknown name, empty args and invalid JSON before `Run` is called, then runs `json.Marshal` on what `Run` returns. A tool can therefore return a struct with camelCase `json` tags and never sees broken JSON.
-- **Imports:** `internal/tools` will import `internal/agent` for `agent.Tool`. `agent` doesn't import `tools`, so there's no cycle. The prompt test can live in `tools` and check that `agent.SystemPrompt` names every tool `Support()` returns.
+- **Imports** *(before the layout change)*: `internal/tools` imported `internal/agent` for `agent.Tool`. Since the layout change it's the other way round: `agents` imports `tools`, and `Tool` lives in `tools`.
 - **`internal/tools/readfile.go`**: package `tools`, with `ReadFile` used by `cmd/agent-cli/main.go:36`. It's untouched. Its test is in-package (`package tools`), with plain `t.Errorf`/`t.Fatalf`.
 - **`internal/agent/agent_test.go`**: table tests with `t.Run` and `reflect.DeepEqual`. No test helper library. Follow the same style.
 - **`docs/openrouter-agent-loop.md:84`**: the schema shape this repo already expects is `{"type":"object","properties":{...},"required":[...],"additionalProperties":false}`. The hand-written schemas follow it.
@@ -56,26 +65,25 @@ The course's four support-triage tools (`searchKnowledgeBase`, `classifyItem`, `
 
 ## Approach
 
-`internal/tools/support.go` has:
-- `Support() []agent.Tool`, returning the four tools in the course's order;
-- one small private args struct per tool, with camelCase `json` tags;
+`internal/tools` has one file per tool (`search.go`, `classify.go`, `draft.go`, `send.go`). Each has an exported constructor returning a `tools.Tool`, and one small private args struct with camelCase `json` tags. `schema.go` has:
+- the schema builders (`objectSchema`, `plainString`, `oneOf`);
 - one shared helper that decodes args strictly, in two passes:
   - **keys.** Decode into `map[string]json.RawMessage`. Any key that isn't exactly one of the schema's `properties` is an error, which catches unknown fields and `ItemID`-style case variants;
   - **values.** Decode into the args struct. Type errors are passed through. Then check that each required field is non-empty, and name it in the error.
   
   The helper reads the key list from the tool's own schema, so the schema and the check can't drift.
-- the knowledge base as an ordered slice of `{key, article}`.
 
-`searchKnowledgeBase` lower-cases the query and keeps every article whose key it contains, in slice order. With no hit it returns the fallback.
+`search.go` keeps the knowledge base as an ordered slice of `{key, article}`. `searchKnowledgeBase` lower-cases the query and keeps every article whose key it contains, in slice order. With no hit it returns the fallback.
 
 `classifyItem` checks the category against the same four values the schema's `enum` lists, taken from one shared list so the two can't drift.
 
-`agent.SystemPrompt` is a const in a new `internal/agent/prompt.go`.
+`agents.SupportPrompt` is a const in `internal/agents/support.go`, and `NewSupportAgent(model)` passes it to `NewAgent` along with the four tools.
 
 ## Red / Green
 
 **Tool specs**
-- `Support()` returns `searchKnowledgeBase`, `classifyItem`, `draftReply`, `sendReply` in that order, each with the course's description verbatim.
+- Each tool's constructor gives the course's name and description verbatim.
+- `NewSupportAgent` offers the model `searchKnowledgeBase`, `classifyItem`, `draftReply`, `sendReply`, in that order.
 - Each schema has:
   - `type: object`;
   - every field as `string` with `minLength: 1`;
@@ -102,18 +110,21 @@ The course's four support-triage tools (`searchKnowledgeBase`, `classifyItem`, `
 - A category of `"refunds"` is an error.
 
 **Prompt**
-- `agent.SystemPrompt` equals the course's text, and it names each tool `Support()` returns.
+- `NewSupportAgent` sends `agents.SupportPrompt` as the system message. It equals the course's text and names each tool the agent offers.
 
 ## Most important file changes
 
 | File | Change |
 |---|---|
-| `internal/tools/support.go` | new: `Support()`, the four tools, the strict decode helper, the knowledge base |
-| `internal/tools/support_test.go` | new |
-| `internal/agent/prompt.go` | new: `SystemPrompt` |
+| `internal/agent/` → `internal/agents/` | renamed; `agent.go` loses `Tool` |
+| `internal/agents/support.go`, `support_test.go` | new: `NewSupportAgent`, later `SupportPrompt` |
+| `internal/tools/tool.go` | new: `Tool` (moved from `agent.go`) |
+| `internal/tools/schema.go` | new: schema builders and `strict` |
+| `internal/tools/{search,classify,draft,send}.go` and their `_test.go` | new: one file per tool |
+| `internal/tools/helpers_test.go` | new: `checkSpec`, `runTool` |
 | `docs/ae-plan/lesson-1-harness.md` | subtask 6 marked done, plus a "How subtask 6 landed" note |
 
-About 150 lines of code and 260 of tests: one PR, under 500.
+About 150 lines of code and 260 of tests, plus the rename of `internal/agent` (about 190 changed lines, all identifiers). That's over 500 counted naively, but the rename is mechanical, so it's still one PR.
 
 ## Open questions
 
@@ -121,26 +132,28 @@ About 150 lines of code and 260 of tests: one PR, under 500.
 
 ## Subtasks
 
-Each item is one commit, ordered outside-in. The program builds and runs after every commit. `Support()` is the entry point subtask 7 will call. It comes first, with every `Run` as a placeholder, and each later subtask replaces one placeholder with the real tool.
+Each item is one commit, ordered outside-in. The program builds and runs after every commit. `agents.NewSupportAgent` is the entry point subtask 7 will call (since the layout change). The tool specs come first, with every `Run` as a placeholder, and each later subtask replaces one placeholder with the real tool.
 
-1. **`tools.Support()` with the four specs.**
+1. ✅ **The four tool specs** (`c270361`, as `tools.Support()` before the layout change).
    - Names, descriptions and schemas are real.
    - Each `Run` is a placeholder that returns an error, "not built yet".
    - Red: the spec tests (order, descriptions, `required`, `enum`, `additionalProperties`, `minLength`, the `query` description).
    - **When this lands:** `go test ./internal/tools/...` lists the spec tests. Calling any tool gives an error.
-2. **`classifyItem`, with the strict decode helper.**
+2. ✅ **`classifyItem`, with the strict decode helper** (`0c5b662`).
+   - Then the layout-change refactor, one commit, no behaviour change.
    - Red: the result test, then the strict-input table for `classifyItem` (missing, `null`, `""`, wrong type, unknown field, wrong-case key, bad category).
    - Green: the two-pass helper (exact keys, then values), plus the category check against the shared list.
    - **When this lands:** `classifyItem` returns the course's result and rejects bad input. The other three are still placeholders.
 3. **`draftReply` and `sendReply`.**
-   - Two tiny echoes on the same helper.
+   - Two tiny echoes on the same helper, in `draft.go` and `send.go`.
    - Red: their results, plus the missing-`message` and missing-`draftId` rows.
    - **When this lands:** three tools are real.
-4. **`searchKnowledgeBase` and the ordered knowledge base.**
+4. **`searchKnowledgeBase` and the ordered knowledge base**, in `search.go`.
    - Red: the pricing, two-match-order, fallback and empty-query tests.
    - **When this lands:** no placeholders are left.
-5. **`agent.SystemPrompt`.**
-   - Red: the test in `support_test.go` that it matches the course text and names every tool in `Support()`.
-   - Then update `docs/ae-plan/lesson-1-harness.md` (subtask 6 done, "How subtask 6 landed").
-   - **When this lands:** everything subtask 7 needs exists: `agent.NewAgent(agent.SystemPrompt, model, tools.Support()...)`. Running `go test ./...` passes, and the server still runs the stub.
-   - **Size:** about 410 lines with tests, under 500, so it's one PR.
+5. **`agents.SupportPrompt`.**
+   - Red: a test in `agents/support_test.go` that `NewSupportAgent` sends it as the system message, that it matches the course text, and that it names every tool the agent offers.
+   - Green: the const, passed to `NewAgent` in place of `""`.
+   - Then update `docs/ae-plan/lesson-1-harness.md`: subtask 6 done, a "How subtask 6 landed" note, and `internal/agent` → `internal/agents` in its file table.
+   - **When this lands:** everything subtask 7 needs exists: `handlers.NewMux(ctx, bus, agents.NewSupportAgent(model).Run)`. Running `go test ./...` passes, and the server still runs the stub.
+   - **Size:** about 410 lines with tests, plus the mechanical rename. One PR.
