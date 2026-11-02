@@ -29,7 +29,7 @@ func ClassifyItem() Tool {
 		Name:        "classifyItem",
 		Description: "Classify a work item into a category.",
 		Parameters:  schema,
-		Run:         strict(schema, classify),
+		Run:         decodeStringArgs(schema, classify),
 	}
 }
 

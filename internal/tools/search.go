@@ -33,7 +33,7 @@ func SearchKnowledgeBase() Tool {
 		Name:        "searchKnowledgeBase",
 		Description: "Search the support knowledge base for relevant articles.",
 		Parameters:  schema,
-		Run:         strict(schema, search),
+		Run:         decodeStringArgs(schema, search),
 	}
 }
 
