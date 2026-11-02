@@ -1,8 +1,9 @@
-package agent_test
+package agents_test
 
 import (
-	"andrelas6/ai-agent-go/internal/agent"
+	"andrelas6/ai-agent-go/internal/agents"
 	"andrelas6/ai-agent-go/internal/events"
+	"andrelas6/ai-agent-go/internal/tools"
 	"context"
 	"encoding/json"
 	"errors"
@@ -42,30 +43,30 @@ func newFakeModel(replies ...fakeReply) fakeModel {
 }
 
 type fakeReply struct {
-	message agent.Message
+	message agents.Message
 	err     error
 }
 
 type nextCalls struct {
-	messages []agent.Message
-	tools    []agent.Tool
+	messages []agents.Message
+	tools    []tools.Tool
 }
 type fakeModel struct {
 	nextCallsCh chan nextCalls
 	repliesCh   chan fakeReply
 }
 
-func (f fakeModel) Next(ctx context.Context, messages []agent.Message, tools []agent.Tool) (agent.Message, error) {
+func (f fakeModel) Next(ctx context.Context, messages []agents.Message, tools []tools.Tool) (agents.Message, error) {
 	select {
 	case f.nextCallsCh <- nextCalls{messages: messages, tools: tools}:
 	default:
-		return agent.Message{}, errors.New("fakeModel: called too many times")
+		return agents.Message{}, errors.New("fakeModel: called too many times")
 	}
 	select {
 	case reply := <-f.repliesCh:
 		return reply.message, reply.err
 	default:
-		return agent.Message{}, errors.New("fakeModel: no scripted reply left")
+		return agents.Message{}, errors.New("fakeModel: no scripted reply left")
 	}
 }
 
@@ -82,8 +83,8 @@ func TestAgentRunBasic(t *testing.T) {
 	fakeWorkflowId := "1234"
 	input := "input"
 	// TODO: maybe assistant, user, system should be in a type somewhere
-	fM := newFakeModel(fakeReply{message: agent.Message{Content: "done", Role: "assistant"}})
-	a := agent.NewAgent("", fM)
+	fM := newFakeModel(fakeReply{message: agents.Message{Content: "done", Role: "assistant"}})
+	a := agents.NewAgent("", fM)
 
 	// execute
 	a.Run(ctx, fakeWorkflowId, input, fakeEmitter(calls, t))
@@ -133,7 +134,7 @@ func TestAgentRunBasic(t *testing.T) {
 
 	select {
 	case nextCall := <-fM.nextCallsCh:
-		want := []agent.Message{{Role: "user", Content: "input"}}
+		want := []agents.Message{{Role: "user", Content: "input"}}
 		if !reflect.DeepEqual(nextCall.messages, want) {
 			t.Fatalf("model got messages %+v. expected %+v", nextCall.messages, want)
 		}
@@ -154,7 +155,7 @@ func TestAgentEmitErrorWhenModelErrors(t *testing.T) {
 	m := newFakeModel(fakeReply{err: errors.New(errorMsg)})
 	input := "hi"
 
-	a := agent.NewAgent("", m)
+	a := agents.NewAgent("", m)
 	workflowID := "1234"
 	// expect 2 calls - if the emitter tries to write a third time, it will block and the test will fail
 	calls := make(chan events.Event, expectedEmitterCalls)
@@ -211,12 +212,12 @@ func TestAgentPassTools(t *testing.T) {
 	// setup
 	workflowID := "1234"
 	expectedEmits := 3
-	fModel := newFakeModel(fakeReply{message: agent.Message{Content: "done", Role: "assistant"}})
-	dummyTool := agent.Tool{
+	fModel := newFakeModel(fakeReply{message: agents.Message{Content: "done", Role: "assistant"}})
+	dummyTool := tools.Tool{
 		Name: "dummy-tool",
 	}
-	tools := []agent.Tool{dummyTool}
-	a := agent.NewAgent("", fModel, tools...)
+	tools := []tools.Tool{dummyTool}
+	a := agents.NewAgent("", fModel, tools...)
 
 	// execute
 	backChannel := make(chan events.Event, expectedEmits)
@@ -243,8 +244,8 @@ func TestAgentFailsOnceOnUnknownModelResponse(t *testing.T) {
 	// setup
 	workflowID := "1234"
 	expectedEmits := 2
-	fModel := newFakeModel(fakeReply{message: agent.Message{Role: "assistant"}})
-	a := agent.NewAgent("", fModel)
+	fModel := newFakeModel(fakeReply{message: agents.Message{Role: "assistant"}})
+	a := agents.NewAgent("", fModel)
 
 	// execute
 	backChannel := make(chan events.Event, expectedEmits)
@@ -280,24 +281,24 @@ func TestAgentRunsToolCallThenAnswers(t *testing.T) {
 	input := "hi"
 	args := json.RawMessage(`{"q":"x"}`)
 	result := json.RawMessage(`{"ok":true}`)
-	assistantWithToolCall := agent.Message{
+	assistantWithToolCall := agents.Message{
 		Role:      "assistant",
-		ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "dummy-tool", Args: args}},
+		ToolCalls: []agents.ToolCall{{ID: "call-1", Name: "dummy-tool", Args: args}},
 	}
 	fModel := newFakeModel(
 		fakeReply{message: assistantWithToolCall},
-		fakeReply{message: agent.Message{Content: "done", Role: "assistant"}},
+		fakeReply{message: agents.Message{Content: "done", Role: "assistant"}},
 	)
 
 	var gotArgs json.RawMessage
-	tools := []agent.Tool{{
+	tools := []tools.Tool{{
 		Name: "dummy-tool",
 		Run: func(ctx context.Context, toolArgs json.RawMessage) (any, error) {
 			gotArgs = toolArgs
 			return map[string]bool{"ok": true}, nil
 		},
 	}}
-	a := agent.NewAgent("", fModel, tools...)
+	a := agents.NewAgent("", fModel, tools...)
 
 	backChannel := make(chan events.Event, 5)
 	a.Run(ctx, workflowID, input, fakeEmitter(backChannel, t))
@@ -327,7 +328,7 @@ func TestAgentRunsToolCallThenAnswers(t *testing.T) {
 	}
 	<-fModel.nextCallsCh
 	secondCall := <-fModel.nextCallsCh
-	wantMessages := []agent.Message{
+	wantMessages := []agents.Message{
 		{Role: "user", Content: input},
 		assistantWithToolCall,
 		{Role: "tool", Content: string(result), ToolCallID: "call-1"},
@@ -348,35 +349,35 @@ func TestAgentRunsSeveralToolCallsInOneTurn(t *testing.T) {
 	result1 := json.RawMessage(`{"ok":"tool-1"}`)
 	result2 := json.RawMessage(`{"ok":"tool-2"}`)
 	input := "hi"
-	assistantWithTwoToolCalls := agent.Message{
+	assistantWithTwoToolCalls := agents.Message{
 		Role: "assistant",
-		ToolCalls: []agent.ToolCall{
+		ToolCalls: []agents.ToolCall{
 			{ID: "call-1", Name: "dummy-tool", Args: args},
 			{ID: "call-2", Name: "dummy-tool-2", Args: args},
 		},
 	}
 	fModel := newFakeModel(
 		fakeReply{message: assistantWithTwoToolCalls},
-		fakeReply{message: agent.Message{Content: "done", Role: "assistant"}},
+		fakeReply{message: agents.Message{Content: "done", Role: "assistant"}},
 	)
 
 	workflowID := "1234"
 
-	dummyTool := agent.Tool{
+	dummyTool := tools.Tool{
 		Name: "dummy-tool",
 		Run: func(ctx context.Context, args json.RawMessage) (any, error) {
 			// no op
 			return map[string]string{"ok": "tool-1"}, nil
 		},
 	}
-	dummyTool2 := agent.Tool{
+	dummyTool2 := tools.Tool{
 		Name: "dummy-tool-2",
 		Run: func(ctx context.Context, args json.RawMessage) (any, error) {
 			return map[string]string{"ok": "tool-2"}, nil
 		},
 	}
-	tools := []agent.Tool{dummyTool, dummyTool2}
-	a := agent.NewAgent("", fModel, tools...)
+	tools := []tools.Tool{dummyTool, dummyTool2}
+	a := agents.NewAgent("", fModel, tools...)
 
 	wantEvents := []events.Event{
 		{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
@@ -407,7 +408,7 @@ func TestAgentRunsSeveralToolCallsInOneTurn(t *testing.T) {
 
 	<-fModel.nextCallsCh
 	secondCall := <-fModel.nextCallsCh
-	wantMessages := []agent.Message{
+	wantMessages := []agents.Message{
 		{Role: "user", Content: input},
 		assistantWithTwoToolCalls,
 		{Role: "tool", Content: string(result1), ToolCallID: "call-1"},
@@ -427,7 +428,7 @@ func TestAgentContinuesWhenToolCallErrors(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		call        agent.ToolCall
+		call        agents.ToolCall
 		toolResult  any
 		toolErr     error
 		wantToolRan bool
@@ -436,7 +437,7 @@ func TestAgentContinuesWhenToolCallErrors(t *testing.T) {
 	}{
 		{
 			name:        "unknown tool name",
-			call:        agent.ToolCall{ID: "call-1", Name: "missing-tool", Args: validArgs},
+			call:        agents.ToolCall{ID: "call-1", Name: "missing-tool", Args: validArgs},
 			wantToolRan: false,
 			wantError:   `unknown tool "missing-tool"`,
 			wantEvents: []events.Event{
@@ -449,7 +450,7 @@ func TestAgentContinuesWhenToolCallErrors(t *testing.T) {
 		},
 		{
 			name:        "tool returns an error",
-			call:        agent.ToolCall{ID: "call-1", Name: "dummy-tool", Args: validArgs},
+			call:        agents.ToolCall{ID: "call-1", Name: "dummy-tool", Args: validArgs},
 			toolErr:     errors.New("tool blew up"),
 			wantToolRan: true,
 			wantError:   "tool blew up",
@@ -463,7 +464,7 @@ func TestAgentContinuesWhenToolCallErrors(t *testing.T) {
 		},
 		{
 			name:        "arguments are not valid JSON",
-			call:        agent.ToolCall{ID: "call-1", Name: "dummy-tool", Args: json.RawMessage(`{"q":`)},
+			call:        agents.ToolCall{ID: "call-1", Name: "dummy-tool", Args: json.RawMessage(`{"q":`)},
 			wantToolRan: false,
 			wantError:   "invalid JSON arguments",
 			wantEvents: []events.Event{
@@ -476,7 +477,7 @@ func TestAgentContinuesWhenToolCallErrors(t *testing.T) {
 		},
 		{
 			name:        "no arguments sent",
-			call:        agent.ToolCall{ID: "call-1", Name: "dummy-tool"},
+			call:        agents.ToolCall{ID: "call-1", Name: "dummy-tool"},
 			wantToolRan: false,
 			wantError:   "no arguments sent",
 			wantEvents: []events.Event{
@@ -489,7 +490,7 @@ func TestAgentContinuesWhenToolCallErrors(t *testing.T) {
 		},
 		{
 			name:        "result won't marshal",
-			call:        agent.ToolCall{ID: "call-1", Name: "dummy-tool", Args: validArgs},
+			call:        agents.ToolCall{ID: "call-1", Name: "dummy-tool", Args: validArgs},
 			toolResult:  make(chan int),
 			wantToolRan: true,
 			wantError:   "json: unsupported type: chan int",
@@ -509,21 +510,21 @@ func TestAgentContinuesWhenToolCallErrors(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
 			defer cancel()
 
-			assistantWithToolCall := agent.Message{Role: "assistant", ToolCalls: []agent.ToolCall{tt.call}}
+			assistantWithToolCall := agents.Message{Role: "assistant", ToolCalls: []agents.ToolCall{tt.call}}
 			fModel := newFakeModel(
 				fakeReply{message: assistantWithToolCall},
-				fakeReply{message: agent.Message{Content: "done", Role: "assistant"}},
+				fakeReply{message: agents.Message{Content: "done", Role: "assistant"}},
 			)
 
 			toolRan := false
-			tools := []agent.Tool{{
+			tools := []tools.Tool{{
 				Name: "dummy-tool",
 				Run: func(ctx context.Context, args json.RawMessage) (any, error) {
 					toolRan = true
 					return tt.toolResult, tt.toolErr
 				},
 			}}
-			a := agent.NewAgent("", fModel, tools...)
+			a := agents.NewAgent("", fModel, tools...)
 
 			backChannel := make(chan events.Event, len(tt.wantEvents))
 
@@ -549,7 +550,7 @@ func TestAgentContinuesWhenToolCallErrors(t *testing.T) {
 			}
 			<-fModel.nextCallsCh
 			secondCall := <-fModel.nextCallsCh
-			wantMessages := []agent.Message{
+			wantMessages := []agents.Message{
 				{Role: "user", Content: input},
 				assistantWithToolCall,
 				{Role: "tool", Content: "error: " + tt.wantError, ToolCallID: "call-1"},
@@ -572,19 +573,19 @@ func TestAgentRunsSecondToolCallWhenFirstFails(t *testing.T) {
 	args := json.RawMessage(`{"q":"x"}`)
 	result := json.RawMessage(`{"ok":true}`)
 	toolErrorText := "tool blew up"
-	assistantWithTwoToolCalls := agent.Message{
+	assistantWithTwoToolCalls := agents.Message{
 		Role: "assistant",
-		ToolCalls: []agent.ToolCall{
+		ToolCalls: []agents.ToolCall{
 			{ID: "call-1", Name: "failing-tool", Args: args},
 			{ID: "call-2", Name: "working-tool", Args: args},
 		},
 	}
 	fModel := newFakeModel(
 		fakeReply{message: assistantWithTwoToolCalls},
-		fakeReply{message: agent.Message{Content: "done", Role: "assistant"}},
+		fakeReply{message: agents.Message{Content: "done", Role: "assistant"}},
 	)
 
-	tools := []agent.Tool{
+	tools := []tools.Tool{
 		{
 			Name: "failing-tool",
 			Run: func(ctx context.Context, args json.RawMessage) (any, error) {
@@ -598,7 +599,7 @@ func TestAgentRunsSecondToolCallWhenFirstFails(t *testing.T) {
 			},
 		},
 	}
-	a := agent.NewAgent("", fModel, tools...)
+	a := agents.NewAgent("", fModel, tools...)
 
 	wantEvents := []events.Event{
 		{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
@@ -627,7 +628,7 @@ func TestAgentRunsSecondToolCallWhenFirstFails(t *testing.T) {
 	}
 	<-fModel.nextCallsCh
 	secondCall := <-fModel.nextCallsCh
-	wantMessages := []agent.Message{
+	wantMessages := []agents.Message{
 		{Role: "user", Content: input},
 		assistantWithTwoToolCalls,
 		{Role: "tool", Content: "error: " + toolErrorText, ToolCallID: "call-1"},
@@ -658,9 +659,9 @@ func TestAgentStepLimit(t *testing.T) {
 	toolCallReplies := func(count int) []fakeReply {
 		var replies []fakeReply
 		for i := range count {
-			replies = append(replies, fakeReply{message: agent.Message{
+			replies = append(replies, fakeReply{message: agents.Message{
 				Role:      "assistant",
-				ToolCalls: []agent.ToolCall{{ID: fmt.Sprintf("call-%d", i+1), Name: "dummy-tool", Args: args}},
+				ToolCalls: []agents.ToolCall{{ID: fmt.Sprintf("call-%d", i+1), Name: "dummy-tool", Args: args}},
 			}})
 		}
 		return replies
@@ -698,7 +699,7 @@ func TestAgentStepLimit(t *testing.T) {
 		},
 		{
 			name:           "model answers on the last step",
-			replies:        append(toolCallReplies(9), fakeReply{message: agent.Message{Content: "done", Role: "assistant"}}),
+			replies:        append(toolCallReplies(9), fakeReply{message: agents.Message{Content: "done", Role: "assistant"}}),
 			wantModelCalls: 10,
 			wantEvents:     slices.Concat(started, toolTurns(9, toolCompleted), answered),
 		},
@@ -717,13 +718,13 @@ func TestAgentStepLimit(t *testing.T) {
 			defer cancel()
 
 			fModel := newFakeModel(tt.replies...)
-			tools := []agent.Tool{{
+			tools := []tools.Tool{{
 				Name: "dummy-tool",
 				Run: func(ctx context.Context, args json.RawMessage) (any, error) {
 					return map[string]bool{"ok": true}, tt.toolErr
 				},
 			}}
-			a := agent.NewAgent("", fModel, tools...)
+			a := agents.NewAgent("", fModel, tools...)
 
 			backChannel := make(chan events.Event, len(tt.wantEvents))
 
@@ -759,7 +760,7 @@ func TestAgentStopsWhenContextIsCancelled(t *testing.T) {
 	firstToolCompleted := events.Event{Type: events.ToolCompleted, WorkflowID: workflowID, ToolCallID: "call-1", Result: result}
 	secondToolRequested := events.Event{Type: events.ToolRequested, WorkflowID: workflowID, ToolCallID: "call-2", Name: "second-tool", Args: args}
 	secondToolCompleted := events.Event{Type: events.ToolCompleted, WorkflowID: workflowID, ToolCallID: "call-2", Result: result}
-	done := fakeReply{message: agent.Message{Content: "done", Role: "assistant"}}
+	done := fakeReply{message: agents.Message{Content: "done", Role: "assistant"}}
 
 	tests := []struct {
 		name            string
@@ -781,7 +782,7 @@ func TestAgentStopsWhenContextIsCancelled(t *testing.T) {
 		{
 			name: "cancelled during the first of two tools",
 			replies: []fakeReply{
-				{message: agent.Message{Role: "assistant", ToolCalls: []agent.ToolCall{
+				{message: agents.Message{Role: "assistant", ToolCalls: []agents.ToolCall{
 					{ID: "call-1", Name: "first-tool", Args: args},
 					{ID: "call-2", Name: "second-tool", Args: args},
 				}}},
@@ -795,7 +796,7 @@ func TestAgentStopsWhenContextIsCancelled(t *testing.T) {
 		{
 			name: "cancelled during the last tool of a turn",
 			replies: []fakeReply{
-				{message: agent.Message{Role: "assistant", ToolCalls: []agent.ToolCall{
+				{message: agents.Message{Role: "assistant", ToolCalls: []agents.ToolCall{
 					{ID: "call-1", Name: "first-tool", Args: args},
 					{ID: "call-2", Name: "second-tool", Args: args},
 				}}},
@@ -816,8 +817,8 @@ func TestAgentStopsWhenContextIsCancelled(t *testing.T) {
 			fModel := newFakeModel(tt.replies...)
 
 			var toolsRan []string
-			newTool := func(name string) agent.Tool {
-				return agent.Tool{
+			newTool := func(name string) tools.Tool {
+				return tools.Tool{
 					Name: name,
 					Run: func(ctx context.Context, args json.RawMessage) (any, error) {
 						toolsRan = append(toolsRan, name)
@@ -828,8 +829,8 @@ func TestAgentStopsWhenContextIsCancelled(t *testing.T) {
 					},
 				}
 			}
-			tools := []agent.Tool{newTool("first-tool"), newTool("second-tool")}
-			a := agent.NewAgent("", fModel, tools...)
+			tools := []tools.Tool{newTool("first-tool"), newTool("second-tool")}
+			a := agents.NewAgent("", fModel, tools...)
 
 			backChannel := make(chan events.Event, len(tt.wantEvents))
 
@@ -864,13 +865,13 @@ type blockingModel struct {
 
 // don't process any messages - just "waits to be cancelled"
 // so that the cancelling of a model while it's still in transit can be tested
-func (m blockingModel) Next(ctx context.Context, messages []agent.Message, tools []agent.Tool) (agent.Message, error) {
+func (m blockingModel) Next(ctx context.Context, messages []agents.Message, tools []tools.Tool) (agents.Message, error) {
 	close(m.started)
 	select {
 	case <-ctx.Done():
-		return agent.Message{}, ctx.Err()
+		return agents.Message{}, ctx.Err()
 	case <-time.After(time.Second):
-		return agent.Message{}, errors.New("blockingModel: context never cancelled")
+		return agents.Message{}, errors.New("blockingModel: context never cancelled")
 	}
 }
 
@@ -883,7 +884,7 @@ func TestAgentStopsWhenCancelledDuringModelCall(t *testing.T) {
 	workflowID := "1234"
 	input := "hi"
 	model := blockingModel{started: make(chan struct{})}
-	a := agent.NewAgent("", model)
+	a := agents.NewAgent("", model)
 
 	wantEvents := []events.Event{
 		{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
@@ -915,12 +916,12 @@ func TestAgentSendsSystemPromptFirst(t *testing.T) {
 	tests := []struct {
 		name         string
 		systemPrompt string
-		wantMessages []agent.Message
+		wantMessages []agents.Message
 	}{
 		{
 			name:         "prompt is set",
 			systemPrompt: "be helpful",
-			wantMessages: []agent.Message{
+			wantMessages: []agents.Message{
 				{Role: "system", Content: "be helpful"},
 				{Role: "user", Content: input},
 			},
@@ -928,7 +929,7 @@ func TestAgentSendsSystemPromptFirst(t *testing.T) {
 		{
 			name:         "prompt is empty",
 			systemPrompt: "",
-			wantMessages: []agent.Message{
+			wantMessages: []agents.Message{
 				{Role: "user", Content: input},
 			},
 		},
@@ -939,8 +940,8 @@ func TestAgentSendsSystemPromptFirst(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*2)
 			defer cancel()
 
-			fModel := newFakeModel(fakeReply{message: agent.Message{Content: "done", Role: "assistant"}})
-			a := agent.NewAgent(tt.systemPrompt, fModel)
+			fModel := newFakeModel(fakeReply{message: agents.Message{Content: "done", Role: "assistant"}})
+			a := agents.NewAgent(tt.systemPrompt, fModel)
 
 			backChannel := make(chan events.Event, 3)
 			a.Run(ctx, "1234", input, fakeEmitter(backChannel, t))
@@ -964,10 +965,10 @@ func TestAgentWithoutAModelFailsCleanly(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		agent *agent.Agent
+		agent *agents.Agent
 	}{
-		{name: "zero value", agent: &agent.Agent{}},
-		{name: "nil model", agent: agent.NewAgent("", nil)},
+		{name: "zero value", agent: &agents.Agent{}},
+		{name: "nil model", agent: agents.NewAgent("", nil)},
 	}
 
 	for _, tt := range tests {
@@ -1027,12 +1028,12 @@ func TestAgentHandlesTheModelFinishReason(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fModel := newFakeModel(fakeReply{message: agent.Message{
+			fModel := newFakeModel(fakeReply{message: agents.Message{
 				Role:         "assistant",
 				Content:      "partial answ",
 				FinishReason: tt.finishReason,
 			}})
-			a := agent.NewAgent("", fModel)
+			a := agents.NewAgent("", fModel)
 
 			backChannel := make(chan events.Event, len(tt.wantEvents))
 			a.Run(t.Context(), workflowID, input, fakeEmitter(backChannel, t))
@@ -1056,20 +1057,20 @@ func TestAgentRunsToolCallsWhateverTheFinishReason(t *testing.T) {
 	input := "hi"
 	args := json.RawMessage(`{"q":"x"}`)
 	fModel := newFakeModel(
-		fakeReply{message: agent.Message{
+		fakeReply{message: agents.Message{
 			Role:         "assistant",
 			FinishReason: "length",
-			ToolCalls:    []agent.ToolCall{{ID: "call-1", Name: "dummy-tool", Args: args}},
+			ToolCalls:    []agents.ToolCall{{ID: "call-1", Name: "dummy-tool", Args: args}},
 		}},
-		fakeReply{message: agent.Message{Content: "done", Role: "assistant"}},
+		fakeReply{message: agents.Message{Content: "done", Role: "assistant"}},
 	)
-	tool := agent.Tool{
+	tool := tools.Tool{
 		Name: "dummy-tool",
 		Run: func(ctx context.Context, args json.RawMessage) (any, error) {
 			return map[string]bool{"ok": true}, nil
 		},
 	}
-	a := agent.NewAgent("", fModel, tool)
+	a := agents.NewAgent("", fModel, tool)
 
 	wantEvents := []events.Event{
 		{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
@@ -1098,20 +1099,20 @@ func TestAgentShowsTextSentWithToolCalls(t *testing.T) {
 	input := "hi"
 	args := json.RawMessage(`{"q":"x"}`)
 	fModel := newFakeModel(
-		fakeReply{message: agent.Message{
+		fakeReply{message: agents.Message{
 			Role:      "assistant",
 			Content:   "let me check that",
-			ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "dummy-tool", Args: args}},
+			ToolCalls: []agents.ToolCall{{ID: "call-1", Name: "dummy-tool", Args: args}},
 		}},
-		fakeReply{message: agent.Message{Content: "done", Role: "assistant"}},
+		fakeReply{message: agents.Message{Content: "done", Role: "assistant"}},
 	)
-	tool := agent.Tool{
+	tool := tools.Tool{
 		Name: "dummy-tool",
 		Run: func(ctx context.Context, args json.RawMessage) (any, error) {
 			return map[string]bool{"ok": true}, nil
 		},
 	}
-	a := agent.NewAgent("", fModel, tool)
+	a := agents.NewAgent("", fModel, tool)
 
 	wantEvents := []events.Event{
 		{Type: events.WorkflowStarted, WorkflowID: workflowID, Input: input},
