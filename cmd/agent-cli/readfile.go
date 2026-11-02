@@ -1,15 +1,9 @@
-package tools
+package main
 
 import (
 	"fmt"
 	"os"
 )
-
-func ReadFileToolSpec() string {
-	return `
-readfile()
-`
-}
 
 // ReadFile returns the contents of the file at path as a string.
 func ReadFile(path string) (string, error) {

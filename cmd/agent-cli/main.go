@@ -1,7 +1,6 @@
 package main
 
 import (
-	"andrelas6/ai-agent-go/internal/tools"
 	"bufio"
 	"context"
 	"encoding/json"
@@ -33,7 +32,7 @@ func main() {
 	}
 	scanner := bufio.NewScanner(os.Stdin)
 
-	claudeDocs, _ := tools.ReadFile("testdata/claude_hooks.md")
+	claudeDocs, _ := ReadFile("testdata/claude_hooks.md")
 
 	var conversation []components.ChatMessages
 	for scanner.Scan() {
