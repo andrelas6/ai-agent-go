@@ -33,14 +33,15 @@ func TestClassifyItemRejectsBadInput(t *testing.T) {
 		args    string
 		wantErr string
 	}{
-		{"missing itemId", `{"category":"billing"}`, `"itemId" is required`},
-		{"missing category", `{"itemId":"item-1"}`, `"category" is required`},
-		{"null itemId", `{"itemId":null,"category":"billing"}`, `"itemId" is required`},
-		{"empty itemId", `{"itemId":"","category":"billing"}`, `"itemId" is required`},
-		{"itemId is a number", `{"itemId":5,"category":"billing"}`, "cannot unmarshal number"},
+		{"missing itemId", `{"category":"billing"}`, `"itemId" is missing`},
+		{"missing category", `{"itemId":"item-1"}`, `"category" is missing`},
+		{"null itemId", `{"itemId":null,"category":"billing"}`, `"itemId" is null`},
+		{"null itemId with spaces around it", `{"itemId" :  null , "category":"billing"}`, `"itemId" is null`},
+		{"empty itemId", `{"itemId":"","category":"billing"}`, `"itemId" is empty`},
+		{"itemId is a number", `{"itemId":5,"category":"billing"}`, `"itemId" must be a string`},
 		{"unknown field", `{"itemId":"item-1","category":"billing","priority":"high"}`, `unknown field "priority"`},
 		{"key in the wrong case", `{"ItemID":"item-1","category":"billing"}`, `unknown field "ItemID"`},
-		{"not an object", `["item-1","billing"]`, "cannot unmarshal array"},
+		{"not an object", `["item-1","billing"]`, "arguments must be a JSON object"},
 		{"category not in the list", `{"itemId":"item-1","category":"refunds"}`, `category "refunds" is not one of billing, technical, sales, other`},
 	}
 

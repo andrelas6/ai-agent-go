@@ -33,10 +33,10 @@ func TestSendReplyRejectsBadInput(t *testing.T) {
 		args    string
 		wantErr string
 	}{
-		{"missing draftId", `{"itemId":"item-1"}`, `"draftId" is required`},
-		{"null draftId", `{"itemId":"item-1","draftId":null}`, `"draftId" is required`},
-		{"missing itemId", `{"draftId":"draft-item-1"}`, `"itemId" is required`},
-		{"draftId is a number", `{"itemId":"item-1","draftId":7}`, "cannot unmarshal number"},
+		{"missing draftId", `{"itemId":"item-1"}`, `"draftId" is missing`},
+		{"null draftId", `{"itemId":"item-1","draftId":null}`, `"draftId" is null`},
+		{"missing itemId", `{"draftId":"draft-item-1"}`, `"itemId" is missing`},
+		{"draftId is a number", `{"itemId":"item-1","draftId":7}`, `"draftId" must be a string`},
 	}
 
 	for _, tt := range tests {

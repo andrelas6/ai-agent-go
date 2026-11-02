@@ -33,9 +33,9 @@ func TestDraftReplyRejectsBadInput(t *testing.T) {
 		args    string
 		wantErr string
 	}{
-		{"missing message", `{"itemId":"item-1"}`, `"message" is required`},
-		{"empty message", `{"itemId":"item-1","message":""}`, `"message" is required`},
-		{"missing itemId", `{"message":"hi"}`, `"itemId" is required`},
+		{"missing message", `{"itemId":"item-1"}`, `"message" is missing`},
+		{"empty message", `{"itemId":"item-1","message":""}`, `"message" is empty`},
+		{"missing itemId", `{"message":"hi"}`, `"itemId" is missing`},
 		{"unknown field", `{"itemId":"item-1","message":"hi","to":"x@y.z"}`, `unknown field "to"`},
 	}
 
