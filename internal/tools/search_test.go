@@ -63,9 +63,9 @@ func TestSearchKnowledgeBaseRejectsBadInput(t *testing.T) {
 		args    string
 		wantErr string
 	}{
-		{"empty query", `{"query":""}`, `"query" is required`},
-		{"missing query", `{}`, `"query" is required`},
-		{"query is a list", `{"query":["billing"]}`, "cannot unmarshal array"},
+		{"empty query", `{"query":""}`, `"query" is empty`},
+		{"missing query", `{}`, `"query" is missing`},
+		{"query is a list", `{"query":["billing"]}`, `"query" must be a string`},
 	}
 
 	for _, tt := range tests {

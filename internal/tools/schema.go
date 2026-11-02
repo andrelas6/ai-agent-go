@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -40,7 +41,7 @@ func decodeStringArgs[T any](schema map[string]any, run func(T) (any, error)) fu
 	return func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &fields); err != nil {
-			return nil, err
+			return nil, errors.New("arguments must be a JSON object")
 		}
 
 		values := make(map[string]string, len(fields))
@@ -48,16 +49,25 @@ func decodeStringArgs[T any](schema map[string]any, run func(T) (any, error)) fu
 			if _, ok := properties[key]; !ok {
 				return nil, fmt.Errorf("unknown field %q", key)
 			}
+			if string(fields[key]) == "null" {
+				continue
+			}
 			var value string
 			if err := json.Unmarshal(fields[key], &value); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%q must be a string", key)
 			}
 			values[key] = value
 		}
 
 		for _, name := range required {
+			if _, sent := fields[name]; !sent {
+				return nil, fmt.Errorf("%q is missing", name)
+			}
+			if string(fields[name]) == "null" {
+				return nil, fmt.Errorf("%q is null", name)
+			}
 			if values[name] == "" {
-				return nil, fmt.Errorf("%q is required", name)
+				return nil, fmt.Errorf("%q is empty", name)
 			}
 		}
 
