@@ -1,6 +1,6 @@
 # ae-plan: The Lesson 1 tools and system prompt
 
-> **Status:** In progress (subtasks 1–4 done, layout changed)
+> **Status:** Done (subtasks 1–5, layout changed after subtask 2)
 > **Last updated:** 2026-11-02
 > **From:** ae-init/lesson-1-tools.md, which is subtask 6 of ae-plan/lesson-1-harness.md, on `main` at `0958115`
 
@@ -151,7 +151,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 4. ✅ **`searchKnowledgeBase` and the ordered knowledge base**, in `search.go` (`6bb87f8`). The "not built yet" placeholder went with it.
    - Red: the pricing, two-match-order, fallback and empty-query tests.
    - **When this lands:** no placeholders are left.
-5. **`agents.SupportPrompt`.**
+5. ✅ **`agents.SupportPrompt`.**
    - Red: a test in `agents/support_test.go` that `NewSupportAgent` sends it as the system message, that it matches the course text, and that it names every tool the agent offers.
    - Green: the const, passed to `NewAgent` in place of `""`.
    - Then update `docs/ae-plan/lesson-1-harness.md`: subtask 6 done, a "How subtask 6 landed" note, and `internal/agent` → `internal/agents` in its file table.

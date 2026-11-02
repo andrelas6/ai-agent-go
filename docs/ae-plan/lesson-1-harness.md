@@ -125,8 +125,9 @@ Four small Go packages in `internal/`, plus the HTTP handlers in `cmd/agent-serv
 | `internal/bus/bus.go`, `bus_test.go` | new |
 | `cmd/agent-server/handlers/handlers.go`, `handlers_test.go` | new: `NewMux(ctx, bus, run)` with `/api/events`, `/api/tasks`, `/api/clear` |
 | `cmd/agent-server/stub.go`, `stub_test.go` | new: the course's stub agent, `runStub` |
-| `internal/agent/agent.go`, `agent_test.go` | new; replaces `internal/runtime/` |
-| `internal/tools/support.go`, `support_test.go` | new: the four Lesson 1 tools and the system prompt |
+| `internal/agents/agent.go`, `agent_test.go` | new; replaces `internal/runtime/`. Was `internal/agent` until subtask 6 |
+| `internal/tools/{tool,schema,search,classify,draft,send}.go` and tests | new: the `Tool` type and the four Lesson 1 tools, one file each |
+| `internal/agents/support.go`, `support_test.go` | new: `SupportPrompt` and `NewSupportAgent(model)` |
 | `internal/model/openrouter.go`, `openrouter_test.go` | new |
 | `cmd/agent-server/main.go` | rewritten |
 | `cmd/agent-cli/main.go`, `format.go`, `format_test.go` | rewritten / new |
@@ -168,7 +169,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 | — | PR #7 review fixes | ✅ Done | [andrelas6/ai-agent-go#8](https://github.com/andrelas6/ai-agent-go/pull/8), `e8a95f3` |
 | 5 | `agent.Run` with fakes | ✅ Done | [andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14), merged (`6999446`). Planned in detail in `ae-plan/stub-agent-loop.md` |
 | — | PR #14 review fixes | ✅ Done | [andrelas6/ai-agent-go#15](https://github.com/andrelas6/ai-agent-go/pull/15), merged (`74d959b`). Reviewed in `docs/ae-review/pr-14.md` |
-| 6 | Real tools and system prompt | ⏳ Not started | |
+| 6 | Real tools and system prompt | ✅ Done, not merged | branch `lesson-1-tools`. Planned in detail in `ae-plan/lesson-1-tools.md` |
 | 7 | Real OpenRouter model, wired into `agent-server` | ⏳ Not started | |
 | 8 | `agent-cli` | ⏳ Not started | |
 
@@ -185,6 +186,19 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 - Handed on to subtask 7: `Model.Next` must pass `ctx` into `Chat.Send`, with a test against an `httptest` server that hangs. Cancelling a real call depends on it.
 - #15 also added a `model.delta` event for text the model sends alongside tool calls. Its display in the inspector hasn't been checked in a browser.
 - A call with no arguments is `tool.failed` with `no arguments sent`, so every tool needs arguments for now. Subtask 6's four tools all take arguments; subtask 7 should check what the provider sends for an empty call.
+
+**How subtask 6 landed, where it differs from this plan:**
+- **The layout changed.** `internal/agent` is now `internal/agents`. It holds the generic agent (`agent.go`, the loop) and the specific agents built from it. The first is `NewSupportAgent(model)` in `agents/support.go`, which passes `SupportPrompt` and the four tools to `NewAgent`.
+- **`Tool` moved to `internal/tools/tool.go`**, so that `agents` imports `tools` and not the other way round. `internal/tools` holds only tools, one file per tool, plus the shared schema helpers in `schema.go`.
+- **There was no default registry to replace.** The fake tools only ever lived in `agent_test.go`, and they're still there.
+- **Tool input is strict.** These all give `tool.failed`, and the error text goes back to the model:
+  - an unknown key, or a key in the wrong case;
+  - a missing, `null` or empty field;
+  - a wrong type;
+  - a bad category.
+  
+  Every schema says `additionalProperties: false` and `minLength: 1`.
+- **Handed on to subtask 7:** wire it with `handlers.NewMux(ctx, bus, agents.NewSupportAgent(model).Run)`.
 
 **PR #7 review follow-ups** (`docs/ae-review/pr-7.md`):
 - ✅ Fixed in [andrelas6/ai-agent-go#8](https://github.com/andrelas6/ai-agent-go/pull/8), merged as `e8a95f3`:
@@ -231,8 +245,8 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
    - **When this lands:** the two-tab, reload-mid-run and Clear checks from the ae-init pass. *These browser checks still haven't been run by hand.*
 5. **`agent.Run` with a scripted fake model and fake tools.** ✅ Done ([andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14)). All the agent-loop tests above. Remove `internal/runtime/`.
    - **When this lands:** `agent-server` still runs the stub; the loop is covered by tests only.
-6. **The real Lesson 1 tools and system prompt**, replacing the fake tools in the default registry.
-7. **The real OpenRouter model** (`OPENROUTER_MODEL`), tested against `httptest`. Wire `agent.Run` into `agent-server` in place of the stub.
+6. **The real Lesson 1 tools and system prompt.** ✅ Done on branch `lesson-1-tools` (`ae-plan/lesson-1-tools.md`). They're used through `agents.NewSupportAgent(model)`.
+7. **The real OpenRouter model** (`OPENROUTER_MODEL`), tested against `httptest`. Wire `agents.NewSupportAgent(model).Run` into `agent-server` in place of the stub.
    - **When this lands:** the sample task runs end to end in the inspector.
 8. **`agent-cli`.** The task is all of stdin up to EOF, there's one readable line per event, and the same `agent.Run` runs underneath. Then add up the diff.
    - **Size:** about 550–650 lines with tests, so over 500. Proposed split into two PRs, each runnable on its own:
