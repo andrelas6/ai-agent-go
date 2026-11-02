@@ -1,7 +1,8 @@
-package agent
+package agents
 
 import (
 	"andrelas6/ai-agent-go/internal/events"
+	"andrelas6/ai-agent-go/internal/tools"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,15 +24,8 @@ type ToolCall struct {
 	Args json.RawMessage
 }
 
-type Tool struct {
-	Name        string
-	Description string
-	Parameters  map[string]any
-	Run         func(ctx context.Context, args json.RawMessage) (any, error)
-}
-
 type Model interface {
-	Next(ctx context.Context, messages []Message, tools []Tool) (Message, error)
+	Next(ctx context.Context, messages []Message, tools []tools.Tool) (Message, error)
 }
 
 type Agent struct {
@@ -39,10 +33,10 @@ type Agent struct {
 	model        Model
 	maxSteps     int
 	systemPrompt string
-	tools        []Tool
+	tools        []tools.Tool
 }
 
-func NewAgent(systemPrompt string, model Model, tools ...Tool) *Agent {
+func NewAgent(systemPrompt string, model Model, tools ...tools.Tool) *Agent {
 	return &Agent{
 		model:        model,
 		maxSteps:     10,
@@ -75,7 +69,7 @@ func getModelResponse(message Message) ModelResponse {
 }
 
 func (a *Agent) runTool(ctx context.Context, call ToolCall) (json.RawMessage, error) {
-	index := slices.IndexFunc(a.tools, func(tool Tool) bool { return tool.Name == call.Name })
+	index := slices.IndexFunc(a.tools, func(tool tools.Tool) bool { return tool.Name == call.Name })
 	if index == -1 {
 		return nil, fmt.Errorf("unknown tool %q", call.Name)
 	}
