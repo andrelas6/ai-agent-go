@@ -1,6 +1,6 @@
 # ae-plan: The Lesson 1 tools and system prompt
 
-> **Status:** In progress (subtasks 1–2 done, layout changed)
+> **Status:** In progress (subtasks 1–4 done, layout changed)
 > **Last updated:** 2026-11-02
 > **From:** ae-init/lesson-1-tools.md, which is subtask 6 of ae-plan/lesson-1-harness.md, on `main` at `0958115`
 
@@ -140,15 +140,15 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
    - Red: the spec tests (order, descriptions, `required`, `enum`, `additionalProperties`, `minLength`, the `query` description).
    - **When this lands:** `go test ./internal/tools/...` lists the spec tests. Calling any tool gives an error.
 2. ✅ **`classifyItem`, with the strict decode helper** (`0c5b662`).
-   - Then the layout-change refactor, one commit, no behaviour change.
+   - Then the layout-change refactor, one commit, no behaviour change (`625b1f4`, docs in `b124f63`).
    - Red: the result test, then the strict-input table for `classifyItem` (missing, `null`, `""`, wrong type, unknown field, wrong-case key, bad category).
    - Green: the two-pass helper (exact keys, then values), plus the category check against the shared list.
    - **When this lands:** `classifyItem` returns the course's result and rejects bad input. The other three are still placeholders.
-3. **`draftReply` and `sendReply`.**
+3. ✅ **`draftReply` and `sendReply`** (`6153656`).
    - Two tiny echoes on the same helper, in `draft.go` and `send.go`.
    - Red: their results, plus the missing-`message` and missing-`draftId` rows.
    - **When this lands:** three tools are real.
-4. **`searchKnowledgeBase` and the ordered knowledge base**, in `search.go`.
+4. ✅ **`searchKnowledgeBase` and the ordered knowledge base**, in `search.go` (`6bb87f8`). The "not built yet" placeholder went with it.
    - Red: the pricing, two-match-order, fallback and empty-query tests.
    - **When this lands:** no placeholders are left.
 5. **`agents.SupportPrompt`.**
