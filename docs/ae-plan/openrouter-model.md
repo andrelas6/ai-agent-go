@@ -137,7 +137,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 2. ✅ **`Next` sends the real request and reads a text reply.** (andrelas6/ai-agent-go#24) Also covers empty `choices`, a null `finish_reason` and a stream reply, so subtask 3's real Reds are only the tool-call reply and empty `arguments`. It replaces the placeholder. Message, tool and request mapping, `max_tokens`, `require_parameters`, auth, the text reply, and `ctx` passed into `Send`.
    - Tests: request shape, the text reply, and the hanging-server cancel test. That one is a real Red here, because the placeholder returns "model not built yet", not `context.Canceled`. Retries are still on, so check that it returns in under a second anyway.
    - **When this lands:** with a key, the model gets the sample task and the tools. A plain question ("hi") gets a text answer and ends in `model.completed` → `workflow.completed`. Tool calls in the reply aren't read yet, so the sample task ends in `workflow.failed` "model returned no text and no tool calls". Ctrl-C stops an in-flight call.
-3. **Tool-call replies, finish reason and empty choices.**
+3. ✅ **Tool-call replies, finish reason and empty choices.**
    - Tests: the tool-call reply, empty `arguments`, `length` and null `finish_reason`, empty `choices`.
    - **When this lands:** the sample task runs end to end in the inspector.
 4. **No retries.** `WithRetryConfig(retry.Config{Strategy: "none"})` in `New`.
