@@ -1,7 +1,7 @@
 # ae-plan: The real OpenRouter model in agent-server
 
 > **Status:** Reviewed
-> **Last updated:** 2026-11-05
+> **Last updated:** 2026-11-06
 > **From:** ae-init/openrouter-model.md, which is subtask 7 of ae-plan/lesson-1-harness.md, on `main` at `f04b4cb`
 
 ## What's being built
@@ -131,7 +131,7 @@
 
 Each item is one commit, ordered outside-in. The program builds and runs after every commit.
 
-1. **The server picks its runner.** `cmd/agent-server/runner.go` with `newRunner`, `-stub`, the env vars, the startup log, and the exit with no key. The model behind it is a placeholder: `internal/model.New` returns an `*OpenRouter` whose `Next` returns `errors.New("model not built yet")`, plus `DefaultModel`.
+1. ✅ **The server picks its runner.** (andrelas6/ai-agent-go#24) `cmd/agent-server/runner.go` with `newRunner`, `-stub`, the env vars, the startup log, and the exit with no key. The model behind it is a placeholder: `internal/model.New` returns an `*OpenRouter` whose `Next` returns `errors.New("model not built yet")`, plus `DefaultModel`.
    - Tests: the three runner-choice cases.
    - **When this lands:** `-stub` gives A exactly. With a key, a task gives `workflow.started` → `workflow.failed` "model not built yet". With neither, the server exits with the message.
 2. **`Next` sends the real request and reads a text reply.** It replaces the placeholder. Message, tool and request mapping, `max_tokens`, `require_parameters`, auth, the text reply, and `ctx` passed into `Send`.
