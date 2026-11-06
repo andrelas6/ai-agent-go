@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// With -stub and no API key, the server runs the course stub and says so in its startup log.
 func TestNewRunnerWithStubRunsTheStub(t *testing.T) {
 	run, line, err := newRunner(true, "", "")
 	if err != nil {
@@ -38,6 +39,7 @@ func TestNewRunnerWithStubRunsTheStub(t *testing.T) {
 	}
 }
 
+// With no -stub and no API key, the server can't start, and the error says to set OPENROUTER_API_KEY or pass -stub.
 func TestNewRunnerWithoutKeyAndWithoutStubFails(t *testing.T) {
 	run, _, err := newRunner(false, "", "z-ai/glm-5.3-flash")
 	if err == nil {
@@ -53,6 +55,7 @@ func TestNewRunnerWithoutKeyAndWithoutStubFails(t *testing.T) {
 	}
 }
 
+// With an API key and no -stub, the server gets a runner, and its startup log names the model the agent runs on.
 func TestNewRunnerWithKeyReturnsTheAgent(t *testing.T) {
 	run, line, err := newRunner(false, "key", "z-ai/glm-5.3-flash")
 	if err != nil {
