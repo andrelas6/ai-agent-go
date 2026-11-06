@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -496,5 +497,34 @@ func TestNextKeepsTextAlongsideToolCalls(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("reply = %+v, want %+v", got, want)
+	}
+}
+
+// Scenario: a server that always answers 500 gets exactly one request, and Next returns that error instead of retrying until the deadline.
+func TestNextDoesNotRetryServerErrors(t *testing.T) {
+	ctx, cancel := testContext(t)
+	defer cancel()
+	var seen atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		seen.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"error":{"code":500,"message":"boom"}}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := newTestModel(srv).Next(ctx, []agents.Message{{Role: "user", Content: "hi"}}, nil)
+	if err == nil {
+		t.Fatal("Next returned no error for a 500 reply")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, want a server error, not a deadline error", err)
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("err = %v, want it to carry the 500 status", err)
+	}
+	if got := seen.Load(); got != 1 {
+		t.Errorf("server saw %d requests, want 1", got)
 	}
 }

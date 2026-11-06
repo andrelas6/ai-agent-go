@@ -11,6 +11,7 @@ import (
 	openrouter "github.com/OpenRouterTeam/go-sdk"
 	"github.com/OpenRouterTeam/go-sdk/models/components"
 	"github.com/OpenRouterTeam/go-sdk/optionalnullable"
+	"github.com/OpenRouterTeam/go-sdk/retry"
 )
 
 const (
@@ -24,7 +25,10 @@ type OpenRouter struct {
 }
 
 func New(apiKey, modelID string, opts ...openrouter.SDKOption) *OpenRouter {
-	options := append([]openrouter.SDKOption{openrouter.WithSecurity(apiKey)}, opts...)
+	options := append([]openrouter.SDKOption{
+		openrouter.WithSecurity(apiKey),
+		openrouter.WithRetryConfig(retry.Config{Strategy: "none"}),
+	}, opts...)
 	return &OpenRouter{
 		client:  openrouter.New(options...),
 		modelID: modelID,
