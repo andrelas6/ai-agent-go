@@ -140,7 +140,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 3. ✅ **Tool-call replies, finish reason and empty choices.**
    - Tests: the tool-call reply, empty `arguments`, `length` and null `finish_reason`, empty `choices`.
    - **When this lands:** the sample task runs end to end in the inspector.
-4. **No retries.** `WithRetryConfig(retry.Config{Strategy: "none"})` in `New`.
+4. ✅ **No retries.** `WithRetryConfig(retry.Config{Strategy: "none"})` in `New`.
    - Test: the 500 test. Red: without the option, the SDK retries until the test's 2s deadline, so the server sees more than one request and the error is a deadline error.
    - **When this lands:** an OpenRouter 5XX shows as `workflow.failed` at once.
 5. **By-hand check and docs.** Run the ae-init's "How to reproduce" end to end, including the browser checks never run so far. Write down what the provider sent for a call with no arguments, and whether `model.delta` showed up. Update `lesson-1-harness.md`: subtask 7 ✅, a "How subtask 7 landed" note, and the two places that still name gemma (the "No streaming" constraint and the "Model adapter" Red/Green bullet) now say `z-ai/glm-5.3-flash`. Then add up the diff.
