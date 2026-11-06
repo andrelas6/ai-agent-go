@@ -1,7 +1,7 @@
 # ae-plan: Lesson 1 harness in Go (SSE inspector + agent loop)
 
 > **Status:** Reviewed
-> **Last updated:** 2026-11-02
+> **Last updated:** 2026-11-06
 > **From:** ae-init/lesson-1-harness.md
 
 ## What's being built
@@ -17,7 +17,7 @@ The course's Lesson 1, served by `ai-agent-go`. The course inspector streams har
   Still no testify and no `invopop/jsonschema`. Tool schemas are written by hand as `map[string]any`.
 - **Package name:** the loop lives in `internal/agent`, not `internal/runtime`, which would shadow the standard library's `runtime`.
 - **Layout follows usage:** a package used by both `agent-server` and `agent-cli` goes in `internal/` (`events`, `agent`, `tools`, `model`). Code only one command uses stays in that command's folder as `package main` (the HTTP handlers live in `cmd/agent-server/handlers`, a sub-package of the server's own folder). `bus` is the one exception: it stays in `internal/` for now, to keep it flexible.
-- **No streaming:** non-streaming `Chat.Send`, so no `model.delta`. The model id comes from `OPENROUTER_MODEL`, defaulting to `google/gemma-4-31b-it`.
+- **No streaming:** non-streaming `Chat.Send`, so no token-by-token output. `model.delta` only carries text the model sends alongside tool calls. The model id comes from `OPENROUTER_MODEL`, defaulting to `z-ai/glm-5.3-flash`.
 - **Inspector:** edited in the course repo on a local branch off `lesson-1`, not `main`. Only these change: `useHarnessSocket.ts`, two URLs in `TaskPane.tsx`, and `vite.config.ts`. **No TDD for any change in the course repo.** The web app isn't what the course is about, so it gets no tests and no Red/Green cycles. Red/Green applies only to the Go code in `ai-agent-go`. We'll know it works by following the ae-init steps (two tabs, a reload mid-run, Clear, and `curl -N` showing events arrive as they're emitted).
 - **Contract:** event JSON must match `shared/events.ts` exactly: camelCase fields, `id` and `workflowId` as UUID strings, `ts` in milliseconds, `args`/`result` as raw JSON.
 - **Out of scope:** no CORS (the proxy replaces it) and no `/api/approve` route (Lesson 7).
@@ -107,7 +107,7 @@ Four small Go packages in `internal/`, plus the HTTP handlers in `cmd/agent-serv
 - Every tool's schema lists its required fields.
 
 **Model adapter**
-- Against an `httptest` server, the request carries the model from `OPENROUTER_MODEL` (default `google/gemma-4-31b-it`) and the tool list, and the reply's tool calls come back intact.
+- Against an `httptest` server, the request carries the model from `OPENROUTER_MODEL` (default `z-ai/glm-5.3-flash`) and the tool list, and the reply's tool calls come back intact.
 
 **CLI**
 - `FormatEvent` prints `tool.requested classifyItem {"itemId":"item-1",...}`-style lines.
@@ -157,7 +157,7 @@ Four small Go packages in `internal/`, plus the HTTP handlers in `cmd/agent-serv
 
 Each item is one commit, ordered outside-in. The program builds and runs after every commit.
 
-### Status, 2026-11-02
+### Status, 2026-11-06
 
 | # | Subtask | Status | Where |
 |---|---|---|---|
@@ -170,7 +170,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 | 5 | `agent.Run` with fakes | ✅ Done | [andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14), merged (`6999446`). Planned in detail in `ae-plan/stub-agent-loop.md` |
 | — | PR #14 review fixes | ✅ Done | [andrelas6/ai-agent-go#15](https://github.com/andrelas6/ai-agent-go/pull/15), merged (`74d959b`). Reviewed in `docs/ae-review/pr-14.md` |
 | 6 | Real tools and system prompt | ✅ Done | [andrelas6/ai-agent-go#16](https://github.com/andrelas6/ai-agent-go/pull/16), merged (`ff7c88e`). Planned in detail in `ae-plan/lesson-1-tools.md` |
-| 7 | Real OpenRouter model, wired into `agent-server` | ⏳ Not started | |
+| 7 | Real OpenRouter model, wired into `agent-server` | ✅ Done | [andrelas6/ai-agent-go#24](https://github.com/andrelas6/ai-agent-go/pull/24), [andrelas6/ai-agent-go#25](https://github.com/andrelas6/ai-agent-go/pull/25), open. Planned in detail in `ae-plan/openrouter-model.md` |
 | 8 | `agent-cli` | ⏳ Not started | |
 
 **How subtask 3 landed, where it differs from this plan:**
@@ -200,6 +200,23 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
   Every schema says `additionalProperties: false` and `minLength: 1`.
 - **Where it differs from the course:** zod drops unknown keys and accepts an empty string. We reject both. The tool names, descriptions, knowledge base articles, result JSON and the system prompt are the course's, word for word.
 - **Handed on to subtask 7:** wire it with `handlers.NewMux(ctx, bus, agents.NewSupportAgent(model).Run)`.
+
+**How subtask 7 landed, where it differs from this plan:**
+- **Planned in detail in `ae-init/openrouter-model.md` and `ae-plan/openrouter-model.md`.** It's split over two PRs: [andrelas6/ai-agent-go#24](https://github.com/andrelas6/ai-agent-go/pull/24) (the runner and the request) and [andrelas6/ai-agent-go#25](https://github.com/andrelas6/ai-agent-go/pull/25) (tool-call replies and no retries). #25 is stacked on #24.
+- **The default model is `z-ai/glm-5.3-flash`, not gemma.** It has about 40 providers, and all of them support tools and a 64k reply. Several gemma providers have no tools, or cap the reply at 16k or less.
+- **The model lives in `internal/model`.** `model.New(apiKey, modelID)` returns the `agents.Model`. `main` reads `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`.
+- **The stub stays behind a `-stub` flag.** With no key and no `-stub`, the server exits before it listens.
+- **What each request sends:**
+  - `max_tokens: 64000` (not `max_completion_tokens`);
+  - `provider.require_parameters: true`, so OpenRouter never routes to a provider that would quietly drop the tools.
+- **The SDK's retries are off.** A 5XX fails the workflow at once.
+- **`ctx` reaches the HTTP call.** Ctrl-C mid-run stops the call in flight.
+- **Checked by hand on 2026-11-06:**
+  - the sample task runs end to end, with every tool completing;
+  - events arrive one model turn at a time;
+  - two tabs, a reload mid-run, and Clear behave as decided in subtask 3;
+  - `model.delta` shows as readable text in the inspector.
+- **Still open:** the model never sent a tool call with no arguments, so what a provider sends for one is still unknown.
 
 **PR #7 review follow-ups** (`docs/ae-review/pr-7.md`):
 - ✅ Fixed in [andrelas6/ai-agent-go#8](https://github.com/andrelas6/ai-agent-go/pull/8), merged as `e8a95f3`:
@@ -247,7 +264,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 5. **`agent.Run` with a scripted fake model and fake tools.** ✅ Done ([andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14)). All the agent-loop tests above. Remove `internal/runtime/`.
    - **When this lands:** `agent-server` still runs the stub; the loop is covered by tests only.
 6. **The real Lesson 1 tools and system prompt.** ✅ Done ([andrelas6/ai-agent-go#16](https://github.com/andrelas6/ai-agent-go/pull/16), `ae-plan/lesson-1-tools.md`). They're used through `agents.NewSupportAgent(model)`.
-7. **The real OpenRouter model** (`OPENROUTER_MODEL`), tested against `httptest`. Wire `agents.NewSupportAgent(model).Run` into `agent-server` in place of the stub.
+7. **The real OpenRouter model** (`OPENROUTER_MODEL`). ✅ Done (#24, #25), tested against `httptest`. Wire `agents.NewSupportAgent(model).Run` into `agent-server` in place of the stub.
    - **When this lands:** the sample task runs end to end in the inspector.
 8. **`agent-cli`.** The task is all of stdin up to EOF, there's one readable line per event, and the same `agent.Run` runs underneath. Then add up the diff.
    - **Size:** about 550–650 lines with tests, so over 500. Proposed split into two PRs, each runnable on its own:
