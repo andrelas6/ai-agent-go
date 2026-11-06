@@ -45,7 +45,9 @@ func choicesServer(t *testing.T, choices []any, requests chan<- capturedRequest)
 		if err := json.Unmarshal(raw, &body); err != nil {
 			t.Errorf("request body is not json: %v", err)
 		}
-		requests <- capturedRequest{method: r.Method, path: r.URL.Path, auth: r.Header.Get("Authorization"), body: body}
+		if requests != nil {
+			requests <- capturedRequest{method: r.Method, path: r.URL.Path, auth: r.Header.Get("Authorization"), body: body}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		reply := map[string]any{
 			"id":      "gen-1",
@@ -349,5 +351,150 @@ func TestNextFailsWhenReplyIsAStream(t *testing.T) {
 	_, err := newTestModel(srv).Next(ctx, []agents.Message{{Role: "user", Content: "hi"}}, nil)
 	if err == nil {
 		t.Fatal("Next returned no error for an event stream reply")
+	}
+}
+
+func toolCallChoice(finishReason string, calls ...any) []any {
+	return toolCallChoiceWithText(nil, finishReason, calls...)
+}
+
+func toolCallChoiceWithText(content any, finishReason string, calls ...any) []any {
+	return []any{map[string]any{
+		"index":         0,
+		"finish_reason": finishReason,
+		"message":       map[string]any{"role": "assistant", "content": content, "tool_calls": calls},
+	}}
+}
+
+func toolCallReply(id, name, arguments string) map[string]any {
+	return map[string]any{
+		"id":       id,
+		"type":     "function",
+		"function": map[string]any{"name": name, "arguments": arguments},
+	}
+}
+
+// Scenario: a reply asking for one tool comes back with that tool call, its raw arguments, and finish reason tool_calls.
+func TestNextReadsToolCallReply(t *testing.T) {
+	ctx, cancel := testContext(t)
+	defer cancel()
+	requests := make(chan capturedRequest, 1)
+	srv := choicesServer(t, toolCallChoice("tool_calls", toolCallReply("call-1", "read_file", `{"path":"a.txt"}`)), requests)
+
+	got, err := newTestModel(srv).Next(ctx, []agents.Message{{Role: "user", Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("Next returned error: %v", err)
+	}
+	want := agents.Message{
+		Role:         "assistant",
+		FinishReason: "tool_calls",
+		ToolCalls:    []agents.ToolCall{{ID: "call-1", Name: "read_file", Args: json.RawMessage(`{"path":"a.txt"}`)}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("reply = %+v, want %+v", got, want)
+	}
+}
+
+// Scenario: a tool call whose arguments string is empty comes back with nil Args.
+func TestNextReadsToolCallWithEmptyArguments(t *testing.T) {
+	ctx, cancel := testContext(t)
+	defer cancel()
+	requests := make(chan capturedRequest, 1)
+	srv := choicesServer(t, toolCallChoice("tool_calls", toolCallReply("call-1", "list_files", "")), requests)
+
+	got, err := newTestModel(srv).Next(ctx, []agents.Message{{Role: "user", Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("Next returned error: %v", err)
+	}
+	if len(got.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %+v, want 1", got.ToolCalls)
+	}
+	if got.ToolCalls[0].Args != nil {
+		t.Errorf("Args = %q, want nil", got.ToolCalls[0].Args)
+	}
+}
+
+// Scenario: a reply with several tool calls keeps them in the order the model sent them.
+func TestNextKeepsToolCallOrder(t *testing.T) {
+	ctx, cancel := testContext(t)
+	defer cancel()
+	requests := make(chan capturedRequest, 1)
+	srv := choicesServer(t, toolCallChoice("tool_calls",
+		toolCallReply("call-b", "read_file", `{"path":"b"}`),
+		toolCallReply("call-a", "list_files", ""),
+		toolCallReply("call-c", "read_file", `{"path":"c"}`),
+	), requests)
+
+	got, err := newTestModel(srv).Next(ctx, []agents.Message{{Role: "user", Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("Next returned error: %v", err)
+	}
+	want := []agents.ToolCall{
+		{ID: "call-b", Name: "read_file", Args: json.RawMessage(`{"path":"b"}`)},
+		{ID: "call-a", Name: "list_files"},
+		{ID: "call-c", Name: "read_file", Args: json.RawMessage(`{"path":"c"}`)},
+	}
+	if !reflect.DeepEqual(got.ToolCalls, want) {
+		t.Errorf("tool calls = %+v, want %+v", got.ToolCalls, want)
+	}
+}
+
+// Scenario: finish reason length is passed through as-is with the partial text (regression check, passes before any change).
+func TestNextReadsLengthFinishReason(t *testing.T) {
+	ctx, cancel := testContext(t)
+	defer cancel()
+	requests := make(chan capturedRequest, 1)
+	srv := choicesServer(t, []any{map[string]any{
+		"index":         0,
+		"finish_reason": "length",
+		"message":       map[string]any{"role": "assistant", "content": "cut off"},
+	}}, requests)
+
+	got, err := newTestModel(srv).Next(ctx, []agents.Message{{Role: "user", Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("Next returned error: %v", err)
+	}
+	want := agents.Message{Role: "assistant", Content: "cut off", FinishReason: "length"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("reply = %+v, want %+v", got, want)
+	}
+}
+
+// Scenario: a tool call whose arguments are not valid JSON keeps those exact bytes as Args.
+func TestNextKeepsInvalidArgumentsUnchanged(t *testing.T) {
+	ctx, cancel := testContext(t)
+	defer cancel()
+	srv := choicesServer(t, toolCallChoice("tool_calls", toolCallReply("call-1", "read_file", `{"path":`)), nil)
+
+	got, err := newTestModel(srv).Next(ctx, []agents.Message{{Role: "user", Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("Next returned error: %v", err)
+	}
+	if len(got.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %+v, want 1", got.ToolCalls)
+	}
+	if string(got.ToolCalls[0].Args) != `{"path":` {
+		t.Errorf("Args = %q, want %q", got.ToolCalls[0].Args, `{"path":`)
+	}
+}
+
+// Scenario: a reply with both text and tool calls keeps the text as Content and the tool calls.
+func TestNextKeepsTextAlongsideToolCalls(t *testing.T) {
+	ctx, cancel := testContext(t)
+	defer cancel()
+	srv := choicesServer(t, toolCallChoiceWithText("let me look", "tool_calls", toolCallReply("call-1", "list_files", `{}`)), nil)
+
+	got, err := newTestModel(srv).Next(ctx, []agents.Message{{Role: "user", Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("Next returned error: %v", err)
+	}
+	want := agents.Message{
+		Role:         "assistant",
+		Content:      "let me look",
+		FinishReason: "tool_calls",
+		ToolCalls:    []agents.ToolCall{{ID: "call-1", Name: "list_files", Args: json.RawMessage(`{}`)}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("reply = %+v, want %+v", got, want)
 	}
 }

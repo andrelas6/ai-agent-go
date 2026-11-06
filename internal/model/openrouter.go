@@ -4,6 +4,7 @@ import (
 	"andrelas6/ai-agent-go/internal/agents"
 	"andrelas6/ai-agent-go/internal/tools"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -142,6 +143,13 @@ func fromChatChoice(choice components.ChatChoice) agents.Message {
 	// length, content_filter or error -> errors
 	if choice.FinishReason != nil {
 		reply.FinishReason = string(*choice.FinishReason)
+	}
+	for _, call := range choice.Message.ToolCalls {
+		toolCall := agents.ToolCall{ID: call.ID, Name: call.Function.Name}
+		if call.Function.Arguments != "" {
+			toolCall.Args = json.RawMessage(call.Function.Arguments)
+		}
+		reply.ToolCalls = append(reply.ToolCalls, toolCall)
 	}
 	return reply
 }
