@@ -1,7 +1,7 @@
 # ae-plan: Lesson 1 harness in Go (SSE inspector + agent loop)
 
 > **Status:** Reviewed
-> **Last updated:** 2026-11-06
+> **Last updated:** 2026-11-07
 > **From:** ae-init/lesson-1-harness.md
 
 ## What's being built
@@ -157,7 +157,7 @@ Four small Go packages in `internal/`, plus the HTTP handlers in `cmd/agent-serv
 
 Each item is one commit, ordered outside-in. The program builds and runs after every commit.
 
-### Status, 2026-11-06
+### Status, 2026-11-07
 
 | # | Subtask | Status | Where |
 |---|---|---|---|
@@ -170,7 +170,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 | 5 | `agent.Run` with fakes | ✅ Done | [andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14), merged (`6999446`). Planned in detail in `ae-plan/stub-agent-loop.md` |
 | — | PR #14 review fixes | ✅ Done | [andrelas6/ai-agent-go#15](https://github.com/andrelas6/ai-agent-go/pull/15), merged (`74d959b`). Reviewed in `docs/ae-review/pr-14.md` |
 | 6 | Real tools and system prompt | ✅ Done | [andrelas6/ai-agent-go#16](https://github.com/andrelas6/ai-agent-go/pull/16), merged (`ff7c88e`). Planned in detail in `ae-plan/lesson-1-tools.md` |
-| 7 | Real OpenRouter model, wired into `agent-server` | ✅ Done | [andrelas6/ai-agent-go#24](https://github.com/andrelas6/ai-agent-go/pull/24), [andrelas6/ai-agent-go#25](https://github.com/andrelas6/ai-agent-go/pull/25), open. Planned in detail in `ae-plan/openrouter-model.md` |
+| 7 | Real OpenRouter model, wired into `agent-server` | ✅ Done | [andrelas6/ai-agent-go#24](https://github.com/andrelas6/ai-agent-go/pull/24), [andrelas6/ai-agent-go#25](https://github.com/andrelas6/ai-agent-go/pull/25), merged (`9619991`). Planned in detail in `ae-plan/openrouter-model.md` |
 | 8 | `agent-cli` | ⏳ Not started | |
 
 **How subtask 3 landed, where it differs from this plan:**

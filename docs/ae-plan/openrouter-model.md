@@ -1,7 +1,7 @@
 # ae-plan: The real OpenRouter model in agent-server
 
-> **Status:** Reviewed
-> **Last updated:** 2026-11-06
+> **Status:** Done, merged in [andrelas6/ai-agent-go#24](https://github.com/andrelas6/ai-agent-go/pull/24) and [andrelas6/ai-agent-go#25](https://github.com/andrelas6/ai-agent-go/pull/25) (`9619991`)
+> **Last updated:** 2026-11-07
 > **From:** ae-init/openrouter-model.md, which is subtask 7 of ae-plan/lesson-1-harness.md, on `main` at `f04b4cb`
 
 ## What's being built
