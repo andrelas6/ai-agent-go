@@ -2,7 +2,7 @@
 
 > **Status:** Verified: routine `devx-teammate` is live
 > **Last updated:** 2026-11-06
-> **Routine:** https://claude.ai/code/routines/trig_01Hw8AenveTpbdvT8YoZqJkw
+> **Routine:** `devx-teammate`
 
 ## What to build
 
