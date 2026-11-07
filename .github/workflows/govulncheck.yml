@@ -24,7 +24,8 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          # Latest patch release, so the scan flags our code, not an old toolchain.
+          go-version: stable
       # Installed as a CI tool, so it never enters go.mod.
       - name: Install govulncheck
         run: cd "$RUNNER_TEMP" && go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
