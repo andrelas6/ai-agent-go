@@ -26,6 +26,12 @@ curl -N localhost:8002/api/events    # watch the event stream
 curl -X POST localhost:8002/api/tasks -d '{"input":"hello"}'
 ```
 
+## Check it
+
+```bash
+make check   # gofmt, go vet, go build, go test -race: the same as CI
+```
+
 ## Rules
 
 - Standard library only, plus two packages: the OpenRouter SDK and `github.com/google/uuid` (see `AGENTS.md`).
