@@ -1,0 +1,33 @@
+name: govulncheck
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: govulncheck-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # Latest patch release, so the scan flags our code, not an old toolchain.
+          go-version: stable
+      # Installed as a CI tool, so it never enters go.mod.
+      - name: Install govulncheck
+        run: cd "$RUNNER_TEMP" && go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+      - name: govulncheck
+        run: govulncheck ./...
