@@ -1,6 +1,6 @@
 # ae-plan: Lesson 1 harness in Go (SSE inspector + agent loop)
 
-> **Status:** Reviewed
+> **Status:** Done (all subtasks 0–8 merged)
 > **Last updated:** 2026-11-09
 > **From:** ae-init/lesson-1-harness.md
 
@@ -172,7 +172,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 | 6 | Real tools and system prompt | ✅ Done | [andrelas6/ai-agent-go#16](https://github.com/andrelas6/ai-agent-go/pull/16), merged (`ff7c88e`). Planned in detail in `ae-plan/lesson-1-tools.md` |
 | 7 | Real OpenRouter model, wired into `agent-server` | ✅ Done | [andrelas6/ai-agent-go#24](https://github.com/andrelas6/ai-agent-go/pull/24), [andrelas6/ai-agent-go#25](https://github.com/andrelas6/ai-agent-go/pull/25), merged (`9619991`). Planned in detail in `ae-plan/openrouter-model.md` |
 | 8 | `agent-cli` | ✅ Done | [andrelas6/ai-agent-go#37](https://github.com/andrelas6/ai-agent-go/pull/37), squash-merged (`5da0c1e`). Planned in detail in `ae-plan/agent-cli.md`; reviewed in `docs/ae-review/pr-37.md` |
-| — | PR #37 review fixes | ✅ Done | branch `agent-cli-review-fixes`. Planned in `ae-plan/pr-37-fixes.md` |
+| — | PR #37 review fixes | ✅ Done | [andrelas6/ai-agent-go#38](https://github.com/andrelas6/ai-agent-go/pull/38), squash-merged (`4a3fabb`). Planned in `ae-plan/pr-37-fixes.md` |
 
 **How subtask 3 landed, where it differs from this plan:**
 - The handlers live in a sub-package, `cmd/agent-server/handlers` (`NewMux(ctx, bus, run)`), not in `package main`. It's still under the server's folder and used only by the server, so it follows the layout rule.

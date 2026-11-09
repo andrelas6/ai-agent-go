@@ -1,6 +1,6 @@
 # ae-plan: PR #37 review fixes for agent-cli
 
-> **Status:** Done on branch `agent-cli-review-fixes` (`2e04801`, `6ab81da`, `8f1a3af`, plus the docs commit)
+> **Status:** Done, squash-merged in [andrelas6/ai-agent-go#38](https://github.com/andrelas6/ai-agent-go/pull/38) as `4a3fabb`
 > **Last updated:** 2026-11-09
 > **From:** ae-review/pr-37.md, the review of andrelas6/ai-agent-go#37 (subtask 8 of ae-plan/lesson-1-harness.md)
 
