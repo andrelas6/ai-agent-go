@@ -33,6 +33,12 @@ jobs:
           fi
       - name: go vet
         run: go vet ./...
+      # Installed as a CI tool, so it never enters go.mod.
+      - name: Install staticcheck
+        run: cd "$RUNNER_TEMP" && go install honnef.co/go/tools/cmd/staticcheck@2026.1
+      # Config (and the SA4006 exclusion) lives in staticcheck.conf.
+      - name: staticcheck
+        run: staticcheck ./...
       - name: go build
         run: go build ./...
       - name: go test
