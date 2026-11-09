@@ -1,7 +1,7 @@
 # ae-plan: Lesson 1 harness in Go (SSE inspector + agent loop)
 
 > **Status:** Reviewed
-> **Last updated:** 2026-11-07
+> **Last updated:** 2026-11-09
 > **From:** ae-init/lesson-1-harness.md
 
 ## What's being built
@@ -171,7 +171,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 | — | PR #14 review fixes | ✅ Done | [andrelas6/ai-agent-go#15](https://github.com/andrelas6/ai-agent-go/pull/15), merged (`74d959b`). Reviewed in `docs/ae-review/pr-14.md` |
 | 6 | Real tools and system prompt | ✅ Done | [andrelas6/ai-agent-go#16](https://github.com/andrelas6/ai-agent-go/pull/16), merged (`ff7c88e`). Planned in detail in `ae-plan/lesson-1-tools.md` |
 | 7 | Real OpenRouter model, wired into `agent-server` | ✅ Done | [andrelas6/ai-agent-go#24](https://github.com/andrelas6/ai-agent-go/pull/24), [andrelas6/ai-agent-go#25](https://github.com/andrelas6/ai-agent-go/pull/25), merged (`9619991`). Planned in detail in `ae-plan/openrouter-model.md` |
-| 8 | `agent-cli` | ⏳ Not started | |
+| 8 | `agent-cli` | ✅ Done | branch `lesson-1-agent-cli` (`e1e1b6f`, `6a39df7`), PR not opened yet. Planned in detail in `ae-plan/agent-cli.md` |
 
 **How subtask 3 landed, where it differs from this plan:**
 - The handlers live in a sub-package, `cmd/agent-server/handlers` (`NewMux(ctx, bus, run)`), not in `package main`. It's still under the server's folder and used only by the server, so it follows the layout rule.
@@ -217,6 +217,24 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
   - two tabs, a reload mid-run, and Clear behave as decided in subtask 3;
   - `model.delta` shows as readable text in the inspector.
 - **Still open:** the model never sent a tool call with no arguments, so what a provider sends for one is still unknown.
+
+**How subtask 8 landed, where it differs from this plan:**
+- **Planned in detail in `ae-init/agent-cli.md` and `ae-plan/agent-cli.md`.** Two commits on `lesson-1-agent-cli`: `e1e1b6f` (the CLI runs the support agent, printing bare event types) and `6a39df7` (readable lines).
+- **Everything new stays in `cmd/agent-cli`**, as `package main`: `readTask`, `run` and `formatEvent`. `internal/` doesn't change. The config lines are copied from the server's `main`, with no shared helper.
+- **The name is `formatEvent`, not `FormatEvent`.** It's lowercase, like `newRunner` in the server.
+- **`readfile.go` and its test are gone**, and so is the old `ClientModel`. `testdata/claude_hooks.md` stays, because `internal/metadata/metadata_test.go` names it.
+- **Exit codes:** 0 when the run completes, 1 when it ends in `workflow.failed` (Ctrl-C mid-run included), 1 with no key or blank stdin. No `-stub` flag.
+- **Events go to stdout.** The `agent: <model>` line and any errors go to stderr.
+- **`tool.completed` and `tool.failed` lines show the call id**, not the tool name, because those events don't carry it. Each one comes right after its `tool.requested` line, since tools run one at a time.
+- **stdin is read before `signal.NotifyContext`.** Otherwise Ctrl-C at an interactive prompt would cancel a context nobody watches, and the CLI would wait for Ctrl-D.
+- **Checked by hand on 2026-11-09:**
+  - the sample task runs end to end on `z-ai/glm-5.3-flash` and exits 0: classify, search, draft and send for all three items, with every tool completing;
+  - Ctrl-C mid-run prints `workflow.failed openrouter request failed: error reading response body: context canceled` and exits 1;
+  - SIGINT while stdin is still open exits at once with 130, the default;
+  - no key prints `OPENROUTER_API_KEY is not set`, blank stdin prints `no task on stdin`, and both exit 1;
+  - `OPENROUTER_MODEL=google/gemma-4-31b-it` shows as `agent: google/gemma-4-31b-it` on stderr.
+- **Size:** 366 lines added and 195 deleted against `main`, so one PR.
+- **Worth knowing:** `draftReply` lines hold the whole draft, so they're wide in a terminal.
 
 **PR #7 review follow-ups** (`docs/ae-review/pr-7.md`):
 - ✅ Fixed in [andrelas6/ai-agent-go#8](https://github.com/andrelas6/ai-agent-go/pull/8), merged as `e8a95f3`:
@@ -266,7 +284,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 6. **The real Lesson 1 tools and system prompt.** ✅ Done ([andrelas6/ai-agent-go#16](https://github.com/andrelas6/ai-agent-go/pull/16), `ae-plan/lesson-1-tools.md`). They're used through `agents.NewSupportAgent(model)`.
 7. **The real OpenRouter model** (`OPENROUTER_MODEL`). ✅ Done (#24, #25), tested against `httptest`. Wire `agents.NewSupportAgent(model).Run` into `agent-server` in place of the stub.
    - **When this lands:** the sample task runs end to end in the inspector.
-8. **`agent-cli`.** The task is all of stdin up to EOF, there's one readable line per event, and the same `agent.Run` runs underneath. Then add up the diff.
+8. **`agent-cli`.** ✅ Done (`lesson-1-agent-cli`, `ae-plan/agent-cli.md`). The task is all of stdin up to EOF, there's one readable line per event, and the same `agent.Run` runs underneath. Then add up the diff.
    - **Size:** about 550–650 lines with tests, so over 500. Proposed split into two PRs, each runnable on its own:
      - **PR 1, transport:** subtasks 2–3 landed as [andrelas6/ai-agent-go#7](https://github.com/andrelas6/ai-agent-go/pull/7). Subtask 1 landed separately in the course repo. The rest of subtask 4 landed in #9–#13.
      - **PR 2, agent loop:** subtask 5 landed on its own as [andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14), about 230 lines of code and 930 of tests. Subtasks 6–8 come separately, so the 550–650 estimate no longer holds.
