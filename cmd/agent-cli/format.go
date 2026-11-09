@@ -19,7 +19,7 @@ func formatEvent(e events.Event) string {
 	case events.ModelDelta, events.ModelCompleted:
 		fields = []string{oneLine(e.Text)}
 	case events.ToolRequested:
-		fields = []string{oneLine(e.Name), compactJSON(e.Args)}
+		fields = []string{oneLine(e.ToolCallID), oneLine(e.Name), compactJSON(e.Args)}
 	case events.ToolCompleted:
 		fields = []string{oneLine(e.ToolCallID), compactJSON(e.Result)}
 	case events.ToolFailed:

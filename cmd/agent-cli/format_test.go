@@ -22,7 +22,7 @@ func TestFormatEventPrintsEachTypeOnOneLine(t *testing.T) {
 		{
 			"tool requested",
 			events.Event{Type: events.ToolRequested, ToolCallID: "call-1", Name: "classifyItem", Args: json.RawMessage(`{"itemId":"item-1","category":"billing"}`)},
-			`tool.requested classifyItem {"itemId":"item-1","category":"billing"}`,
+			`tool.requested call-1 classifyItem {"itemId":"item-1","category":"billing"}`,
 		},
 		{
 			"tool completed",
@@ -66,16 +66,16 @@ func TestFormatEventCompactsJSON(t *testing.T) {
 		want  string
 	}{
 		{
-			events.Event{Type: events.ToolRequested, Name: "draftReply", Args: json.RawMessage("{\n  \"itemId\": \"item-1\",\n  \"tone\": \"friendly\"\n}")},
-			`tool.requested draftReply {"itemId":"item-1","tone":"friendly"}`,
+			events.Event{Type: events.ToolRequested, ToolCallID: "call-3", Name: "draftReply", Args: json.RawMessage("{\n  \"itemId\": \"item-1\",\n  \"tone\": \"friendly\"\n}")},
+			`tool.requested call-3 draftReply {"itemId":"item-1","tone":"friendly"}`,
 		},
 		{
 			events.Event{Type: events.ToolCompleted, ToolCallID: "call-2", Result: json.RawMessage("{\n  \"sent\": true\n}")},
 			`tool.completed call-2 {"sent":true}`,
 		},
 		{
-			events.Event{Type: events.ToolRequested, Name: "classifyItem", Args: json.RawMessage("{\"itemId\":\n \"item-1\"")},
-			`tool.requested classifyItem {"itemId": "item-1"`,
+			events.Event{Type: events.ToolRequested, ToolCallID: "call-4", Name: "classifyItem", Args: json.RawMessage("{\"itemId\":\n \"item-1\"")},
+			`tool.requested call-4 classifyItem {"itemId": "item-1"`,
 		},
 	}
 	for _, c := range cases {

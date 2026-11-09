@@ -21,3 +21,8 @@ func TestNewRunnerWithStubRunsTheStub(t *testing.T) {
 ```
 
 This holds even where other instructions say not to add comments.
+
+
+## Implementation
+
+When you implement, use the ae-implementer and ae-reviewer subagents.

@@ -1,6 +1,6 @@
 # ae-plan: agent-cli runs the support agent from the terminal
 
-> **Status:** Done on branch `lesson-1-agent-cli` (`e1e1b6f`, `6a39df7`), PR not opened yet
+> **Status:** Done, squash-merged in [andrelas6/ai-agent-go#37](https://github.com/andrelas6/ai-agent-go/pull/37) (`5da0c1e`). Review fixes in `ae-plan/pr-37-fixes.md`
 > **Last updated:** 2026-11-09
 > **From:** ae-init/agent-cli.md, which is subtask 8 of ae-plan/lesson-1-harness.md, on `main` at `b2414be`
 

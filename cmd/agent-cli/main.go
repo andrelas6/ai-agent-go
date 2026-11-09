@@ -1,6 +1,7 @@
 package main
 
 import (
+	"andrelas6/ai-agent-go/internal/agents"
 	"andrelas6/ai-agent-go/internal/model"
 	"context"
 	"fmt"
@@ -27,7 +28,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	fmt.Fprintln(os.Stderr, "agent: "+modelID)
-	code := run(ctx, task, model.New(apiKey, modelID), os.Stdout)
+	code := runTask(ctx, task, agents.NewSupportAgent(model.New(apiKey, modelID)).Run, os.Stdout)
 	stop()
 	os.Exit(code)
 }
