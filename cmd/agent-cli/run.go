@@ -25,7 +25,7 @@ func readTask(r io.Reader) (string, error) {
 
 type runner func(ctx context.Context, workflowID, input string, emit func(events.Event))
 
-func run(ctx context.Context, task string, runAgent runner, out io.Writer) int {
+func runTask(ctx context.Context, task string, runAgent runner, out io.Writer) int {
 	completed := false
 	failed := false
 	runAgent(ctx, uuid.NewString(), task, func(e events.Event) {

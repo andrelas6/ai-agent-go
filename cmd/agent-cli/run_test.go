@@ -11,22 +11,23 @@ import (
 	"testing"
 )
 
+type scriptedReply struct {
+	message agents.Message
+	err     error
+}
+
 type scriptedModel struct {
-	replies []agents.Message
-	errs    []error
+	replies []scriptedReply
 	calls   [][]agents.Message
 }
 
 func (m *scriptedModel) Next(ctx context.Context, messages []agents.Message, _ []tools.Tool) (agents.Message, error) {
 	m.calls = append(m.calls, messages)
 	i := len(m.calls) - 1
-	if i < len(m.errs) && m.errs[i] != nil {
-		return agents.Message{}, m.errs[i]
-	}
 	if i >= len(m.replies) {
 		return agents.Message{}, errors.New("scriptedModel: no reply left")
 	}
-	return m.replies[i], nil
+	return m.replies[i].message, m.replies[i].err
 }
 
 func outputLines(out string) []string {
@@ -34,18 +35,18 @@ func outputLines(out string) []string {
 }
 
 // The model asks for classifyItem, then answers in text: one line per event, each starting with its type, and exit code 0.
-func TestRunPrintsOneLinePerEventAndExitsZeroOnCompleted(t *testing.T) {
-	m := &scriptedModel{replies: []agents.Message{
-		{Role: "assistant", ToolCalls: []agents.ToolCall{{
+func TestRunTaskPrintsOneLinePerEventAndExitsZeroOnCompleted(t *testing.T) {
+	m := &scriptedModel{replies: []scriptedReply{
+		{message: agents.Message{Role: "assistant", ToolCalls: []agents.ToolCall{{
 			ID:   "call-1",
 			Name: "classifyItem",
 			Args: json.RawMessage(`{"itemId":"item-1","category":"billing"}`),
-		}}, FinishReason: "tool_calls"},
-		{Role: "assistant", Content: "done", FinishReason: "stop"},
+		}}, FinishReason: "tool_calls"}},
+		{message: agents.Message{Role: "assistant", Content: "done", FinishReason: "stop"}},
 	}}
 	var out strings.Builder
 
-	code := run(t.Context(), "Handle item-1", agents.NewSupportAgent(m).Run, &out)
+	code := runTask(t.Context(), "Handle item-1", agents.NewSupportAgent(m).Run, &out)
 
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
@@ -63,13 +64,13 @@ func TestRunPrintsOneLinePerEventAndExitsZeroOnCompleted(t *testing.T) {
 }
 
 // A runner that emits only workflow.started and then returns never completed, so the exit code is 1, and the started line is still printed.
-func TestRunExitsOneWhenNoFinalEvent(t *testing.T) {
+func TestRunTaskExitsOneWhenNoFinalEvent(t *testing.T) {
 	runAgent := func(_ context.Context, workflowID, _ string, emit func(events.Event)) {
 		emit(events.Event{Type: events.WorkflowStarted, WorkflowID: workflowID})
 	}
 	var out strings.Builder
 
-	code := run(t.Context(), "Handle item-1", runAgent, &out)
+	code := runTask(t.Context(), "Handle item-1", runAgent, &out)
 
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
@@ -81,13 +82,13 @@ func TestRunExitsOneWhenNoFinalEvent(t *testing.T) {
 }
 
 // A runner that emits workflow.started then workflow.completed exits 0.
-func TestRunExitsZeroWhenCompleted(t *testing.T) {
+func TestRunTaskExitsZeroWhenCompleted(t *testing.T) {
 	runAgent := func(_ context.Context, workflowID, _ string, emit func(events.Event)) {
 		emit(events.Event{Type: events.WorkflowStarted, WorkflowID: workflowID})
 		emit(events.Event{Type: events.WorkflowCompleted, WorkflowID: workflowID})
 	}
 
-	code := run(t.Context(), "Handle item-1", runAgent, &strings.Builder{})
+	code := runTask(t.Context(), "Handle item-1", runAgent, &strings.Builder{})
 
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
@@ -95,11 +96,11 @@ func TestRunExitsZeroWhenCompleted(t *testing.T) {
 }
 
 // The task reaches the model unchanged, as the user message right after the support prompt.
-func TestRunSendsTheTaskAsTheUserMessage(t *testing.T) {
+func TestRunTaskSendsTheTaskAsTheUserMessage(t *testing.T) {
 	task := "Handle these work items:\n- item-1 (customer_message): \"I was charged twice and need help.\""
-	m := &scriptedModel{replies: []agents.Message{{Role: "assistant", Content: "done", FinishReason: "stop"}}}
+	m := &scriptedModel{replies: []scriptedReply{{message: agents.Message{Role: "assistant", Content: "done", FinishReason: "stop"}}}}
 
-	run(t.Context(), task, agents.NewSupportAgent(m).Run, &strings.Builder{})
+	runTask(t.Context(), task, agents.NewSupportAgent(m).Run, &strings.Builder{})
 
 	if len(m.calls) == 0 {
 		t.Fatal("the model was never called")
@@ -116,30 +117,30 @@ func TestRunSendsTheTaskAsTheUserMessage(t *testing.T) {
 	}
 }
 
-// The model returns an error: the last line is workflow.failed and the exit code is 1.
-func TestRunExitsOneWhenTheModelFails(t *testing.T) {
-	m := &scriptedModel{errs: []error{errors.New("boom")}}
+// The model returns an error: the last line is workflow.failed with that error, and the exit code is 1.
+func TestRunTaskExitsOneWhenTheModelFails(t *testing.T) {
+	m := &scriptedModel{replies: []scriptedReply{{err: errors.New("boom")}}}
 	var out strings.Builder
 
-	code := run(t.Context(), "Handle item-1", agents.NewSupportAgent(m).Run, &out)
+	code := runTask(t.Context(), "Handle item-1", agents.NewSupportAgent(m).Run, &out)
 
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
 	lines := outputLines(out.String())
-	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "workflow.failed") {
-		t.Errorf("last line = %q, want it to start with workflow.failed", last)
+	if last := lines[len(lines)-1]; last != "workflow.failed boom" {
+		t.Errorf("last line = %q, want %q", last, "workflow.failed boom")
 	}
 }
 
 // A cancelled context, as after Ctrl-C, ends the run in workflow.failed and exit code 1.
-func TestRunExitsOneWhenCancelled(t *testing.T) {
+func TestRunTaskExitsOneWhenCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	m := &scriptedModel{replies: []agents.Message{{Role: "assistant", Content: "done", FinishReason: "stop"}}}
+	m := &scriptedModel{replies: []scriptedReply{{message: agents.Message{Role: "assistant", Content: "done", FinishReason: "stop"}}}}
 	var out strings.Builder
 
-	code := run(ctx, "Handle item-1", agents.NewSupportAgent(m).Run, &out)
+	code := runTask(ctx, "Handle item-1", agents.NewSupportAgent(m).Run, &out)
 
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
