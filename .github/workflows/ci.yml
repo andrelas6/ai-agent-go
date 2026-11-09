@@ -36,4 +36,12 @@ jobs:
       - name: go build
         run: go build ./...
       - name: go test
-        run: go test -race ./...
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: coverage report
+        run: |
+          {
+            echo "### Coverage"
+            echo '```'
+            go tool cover -func=coverage.out
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
