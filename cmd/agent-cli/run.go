@@ -1,7 +1,6 @@
 package main
 
 import (
-	"andrelas6/ai-agent-go/internal/agents"
 	"andrelas6/ai-agent-go/internal/events"
 	"context"
 	"errors"
@@ -24,15 +23,21 @@ func readTask(r io.Reader) (string, error) {
 	return task, nil
 }
 
-func run(ctx context.Context, task string, m agents.Model, out io.Writer) int {
+type runner func(ctx context.Context, workflowID, input string, emit func(events.Event))
+
+func run(ctx context.Context, task string, runAgent runner, out io.Writer) int {
+	completed := false
 	failed := false
-	agents.NewSupportAgent(m).Run(ctx, uuid.NewString(), task, func(e events.Event) {
+	runAgent(ctx, uuid.NewString(), task, func(e events.Event) {
+		if e.Type == events.WorkflowCompleted {
+			completed = true
+		}
 		if e.Type == events.WorkflowFailed {
 			failed = true
 		}
 		fmt.Fprintln(out, formatEvent(e))
 	})
-	if failed {
+	if failed || !completed {
 		return 1
 	}
 	return 0

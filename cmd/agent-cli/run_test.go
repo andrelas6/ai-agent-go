@@ -2,6 +2,7 @@ package main
 
 import (
 	"andrelas6/ai-agent-go/internal/agents"
+	"andrelas6/ai-agent-go/internal/events"
 	"andrelas6/ai-agent-go/internal/tools"
 	"context"
 	"encoding/json"
@@ -44,7 +45,7 @@ func TestRunPrintsOneLinePerEventAndExitsZeroOnCompleted(t *testing.T) {
 	}}
 	var out strings.Builder
 
-	code := run(t.Context(), "Handle item-1", m, &out)
+	code := run(t.Context(), "Handle item-1", agents.NewSupportAgent(m).Run, &out)
 
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
@@ -61,12 +62,44 @@ func TestRunPrintsOneLinePerEventAndExitsZeroOnCompleted(t *testing.T) {
 	}
 }
 
+// A runner that emits only workflow.started and then returns never completed, so the exit code is 1, and the started line is still printed.
+func TestRunExitsOneWhenNoFinalEvent(t *testing.T) {
+	runAgent := func(_ context.Context, workflowID, _ string, emit func(events.Event)) {
+		emit(events.Event{Type: events.WorkflowStarted, WorkflowID: workflowID})
+	}
+	var out strings.Builder
+
+	code := run(t.Context(), "Handle item-1", runAgent, &out)
+
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	lines := outputLines(out.String())
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "workflow.started") {
+		t.Errorf("output = %q, want one workflow.started line", out.String())
+	}
+}
+
+// A runner that emits workflow.started then workflow.completed exits 0.
+func TestRunExitsZeroWhenCompleted(t *testing.T) {
+	runAgent := func(_ context.Context, workflowID, _ string, emit func(events.Event)) {
+		emit(events.Event{Type: events.WorkflowStarted, WorkflowID: workflowID})
+		emit(events.Event{Type: events.WorkflowCompleted, WorkflowID: workflowID})
+	}
+
+	code := run(t.Context(), "Handle item-1", runAgent, &strings.Builder{})
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+}
+
 // The task reaches the model unchanged, as the user message right after the support prompt.
 func TestRunSendsTheTaskAsTheUserMessage(t *testing.T) {
 	task := "Handle these work items:\n- item-1 (customer_message): \"I was charged twice and need help.\""
 	m := &scriptedModel{replies: []agents.Message{{Role: "assistant", Content: "done", FinishReason: "stop"}}}
 
-	run(t.Context(), task, m, &strings.Builder{})
+	run(t.Context(), task, agents.NewSupportAgent(m).Run, &strings.Builder{})
 
 	if len(m.calls) == 0 {
 		t.Fatal("the model was never called")
@@ -88,7 +121,7 @@ func TestRunExitsOneWhenTheModelFails(t *testing.T) {
 	m := &scriptedModel{errs: []error{errors.New("boom")}}
 	var out strings.Builder
 
-	code := run(t.Context(), "Handle item-1", m, &out)
+	code := run(t.Context(), "Handle item-1", agents.NewSupportAgent(m).Run, &out)
 
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
@@ -106,7 +139,7 @@ func TestRunExitsOneWhenCancelled(t *testing.T) {
 	m := &scriptedModel{replies: []agents.Message{{Role: "assistant", Content: "done", FinishReason: "stop"}}}
 	var out strings.Builder
 
-	code := run(ctx, "Handle item-1", m, &out)
+	code := run(ctx, "Handle item-1", agents.NewSupportAgent(m).Run, &out)
 
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
