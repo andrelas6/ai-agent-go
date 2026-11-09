@@ -171,7 +171,8 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 | — | PR #14 review fixes | ✅ Done | [andrelas6/ai-agent-go#15](https://github.com/andrelas6/ai-agent-go/pull/15), merged (`74d959b`). Reviewed in `docs/ae-review/pr-14.md` |
 | 6 | Real tools and system prompt | ✅ Done | [andrelas6/ai-agent-go#16](https://github.com/andrelas6/ai-agent-go/pull/16), merged (`ff7c88e`). Planned in detail in `ae-plan/lesson-1-tools.md` |
 | 7 | Real OpenRouter model, wired into `agent-server` | ✅ Done | [andrelas6/ai-agent-go#24](https://github.com/andrelas6/ai-agent-go/pull/24), [andrelas6/ai-agent-go#25](https://github.com/andrelas6/ai-agent-go/pull/25), merged (`9619991`). Planned in detail in `ae-plan/openrouter-model.md` |
-| 8 | `agent-cli` | ✅ Done | branch `lesson-1-agent-cli` (`e1e1b6f`, `6a39df7`), PR not opened yet. Planned in detail in `ae-plan/agent-cli.md` |
+| 8 | `agent-cli` | ✅ Done | [andrelas6/ai-agent-go#37](https://github.com/andrelas6/ai-agent-go/pull/37), squash-merged (`5da0c1e`). Planned in detail in `ae-plan/agent-cli.md`; reviewed in `docs/ae-review/pr-37.md` |
+| — | PR #37 review fixes | ✅ Done | branch `agent-cli-review-fixes`. Planned in `ae-plan/pr-37-fixes.md` |
 
 **How subtask 3 landed, where it differs from this plan:**
 - The handlers live in a sub-package, `cmd/agent-server/handlers` (`NewMux(ctx, bus, run)`), not in `package main`. It's still under the server's folder and used only by the server, so it follows the layout rule.
@@ -219,13 +220,13 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 - **Still open:** the model never sent a tool call with no arguments, so what a provider sends for one is still unknown.
 
 **How subtask 8 landed, where it differs from this plan:**
-- **Planned in detail in `ae-init/agent-cli.md` and `ae-plan/agent-cli.md`.** Two commits on `lesson-1-agent-cli`: `e1e1b6f` (the CLI runs the support agent, printing bare event types) and `6a39df7` (readable lines).
-- **Everything new stays in `cmd/agent-cli`**, as `package main`: `readTask`, `run` and `formatEvent`. `internal/` doesn't change. The config lines are copied from the server's `main`, with no shared helper.
+- **Planned in detail in `ae-init/agent-cli.md` and `ae-plan/agent-cli.md`.** Built as two commits (the CLI with bare event types, then readable lines). The repo only allows squash merges on `main`, so #37 landed as one commit, `5da0c1e`.
+- **Everything new stays in `cmd/agent-cli`**, as `package main`: `readTask`, `runTask` (`run` until the review fixes) and `formatEvent`. `internal/` doesn't change. The config lines are copied from the server's `main`, with no shared helper.
 - **The name is `formatEvent`, not `FormatEvent`.** It's lowercase, like `newRunner` in the server.
 - **`readfile.go` and its test are gone**, and so is the old `ClientModel`. `testdata/claude_hooks.md` stays, because `internal/metadata/metadata_test.go` names it.
-- **Exit codes:** 0 when the run completes, 1 when it ends in `workflow.failed` (Ctrl-C mid-run included), 1 with no key or blank stdin. No `-stub` flag.
+- **Exit codes:** 0 only when the run ends in `workflow.completed`. 1 when it ends in `workflow.failed` (Ctrl-C mid-run included), or with no final event at all (since the review fixes; before, that was 0). 1 with no key or blank stdin. No `-stub` flag.
 - **Events go to stdout.** The `agent: <model>` line and any errors go to stderr.
-- **`tool.completed` and `tool.failed` lines show the call id**, not the tool name, because those events don't carry it. Each one comes right after its `tool.requested` line, since tools run one at a time.
+- **Every tool line shows the call id:** `tool.requested <id> <name> <args>`, then `tool.completed <id> <result>` or `tool.failed <id> <error>`. `tool.completed` and `tool.failed` events don't carry the tool name. The id on `tool.requested` came with the review fixes.
 - **stdin is read before `signal.NotifyContext`.** Otherwise Ctrl-C at an interactive prompt would cancel a context nobody watches, and the CLI would wait for Ctrl-D.
 - **Checked by hand on 2026-11-09:**
   - the sample task runs end to end on `z-ai/glm-5.3-flash` and exits 0: classify, search, draft and send for all three items, with every tool completing;
@@ -235,6 +236,11 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
   - `OPENROUTER_MODEL=google/gemma-4-31b-it` shows as `agent: google/gemma-4-31b-it` on stderr.
 - **Size:** 366 lines added and 195 deleted against `main`, so one PR.
 - **Worth knowing:** `draftReply` lines hold the whole draft, so they're wide in a terminal.
+- **Decided in the PR #37 review** (`docs/ae-review/pr-37.md`, fixed in `ae-plan/pr-37-fixes.md`):
+  - **`emit` is synchronous.** `Agent.Run` calls `emit` in the caller's goroutine, and the CLI's lock-free exit-code flags depend on that. If tools ever run in parallel and emit from goroutines, `runTask` needs a lock or a channel.
+  - **No panic guard in the CLI.** The server wraps its runner in `runSafely`; the CLI doesn't. A panicking tool prints a Go stack trace and exits 2, which is visible enough for a terminal tool.
+  - **André's comments in the old `main.go`** and the doc comment in `readfile.go` were removed on purpose, as agreed in the ae-init, because the files were replaced or deleted.
+  - `runTask` takes the agent's `Run` function (the same shape as the server's `handlers.Runner`) instead of a model, so the exit-code tests can use a fake runner.
 
 **PR #7 review follow-ups** (`docs/ae-review/pr-7.md`):
 - ✅ Fixed in [andrelas6/ai-agent-go#8](https://github.com/andrelas6/ai-agent-go/pull/8), merged as `e8a95f3`:
@@ -284,7 +290,7 @@ Each item is one commit, ordered outside-in. The program builds and runs after e
 6. **The real Lesson 1 tools and system prompt.** ✅ Done ([andrelas6/ai-agent-go#16](https://github.com/andrelas6/ai-agent-go/pull/16), `ae-plan/lesson-1-tools.md`). They're used through `agents.NewSupportAgent(model)`.
 7. **The real OpenRouter model** (`OPENROUTER_MODEL`). ✅ Done (#24, #25), tested against `httptest`. Wire `agents.NewSupportAgent(model).Run` into `agent-server` in place of the stub.
    - **When this lands:** the sample task runs end to end in the inspector.
-8. **`agent-cli`.** ✅ Done (`lesson-1-agent-cli`, `ae-plan/agent-cli.md`). The task is all of stdin up to EOF, there's one readable line per event, and the same `agent.Run` runs underneath. Then add up the diff.
+8. **`agent-cli`.** ✅ Done ([andrelas6/ai-agent-go#37](https://github.com/andrelas6/ai-agent-go/pull/37), `ae-plan/agent-cli.md`). The task is all of stdin up to EOF, there's one readable line per event, and the same `agent.Run` runs underneath. Then add up the diff.
    - **Size:** about 550–650 lines with tests, so over 500. Proposed split into two PRs, each runnable on its own:
      - **PR 1, transport:** subtasks 2–3 landed as [andrelas6/ai-agent-go#7](https://github.com/andrelas6/ai-agent-go/pull/7). Subtask 1 landed separately in the course repo. The rest of subtask 4 landed in #9–#13.
      - **PR 2, agent loop:** subtask 5 landed on its own as [andrelas6/ai-agent-go#14](https://github.com/andrelas6/ai-agent-go/pull/14), about 230 lines of code and 930 of tests. Subtasks 6–8 come separately, so the 550–650 estimate no longer holds.
