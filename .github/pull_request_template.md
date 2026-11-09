@@ -9,5 +9,5 @@
 make check
 ```
 
-## Needs André
+## Needs attention
 - Nothing, or list repo settings and other follow-ups here.
