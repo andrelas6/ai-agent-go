@@ -53,7 +53,7 @@ go run ./cmd/agent-cli < testdata/sample-task.txt
 ## Check it
 
 ```bash
-make check   # gofmt, go vet, staticcheck, go build, go test -race: the same as CI's check job
+make check   # go mod tidy, gofmt, go vet, staticcheck, go build, go test -race: the same as CI's check job
 make cover   # the tests with a per-function coverage report
 ```
 
