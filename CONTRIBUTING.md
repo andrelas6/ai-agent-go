@@ -12,7 +12,7 @@
 ## Before you push
 
 ```bash
-make check   # gofmt, go vet, staticcheck, go build, go test -race: the same as CI
+make check   # go mod tidy, gofmt, go vet, staticcheck, go build, go test -race: the same as CI
 make cover   # per-function coverage report
 ```
 

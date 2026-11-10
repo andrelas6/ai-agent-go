@@ -1,9 +1,15 @@
 # Local versions of the checks that CI runs (.github/workflows/ci.yml).
 
-.PHONY: check fmt vet staticcheck build test cover
+.PHONY: check mod fmt vet staticcheck build test cover
 
 # Run everything CI's `check` job runs.
-check: fmt vet staticcheck build test
+check: mod fmt vet staticcheck build test
+
+# Fail if go.mod or go.sum are not tidy, then verify downloaded modules.
+mod:
+	go mod tidy
+	git diff --exit-code -- go.mod go.sum
+	go mod verify
 
 # Fail if any file needs gofmt.
 fmt:
