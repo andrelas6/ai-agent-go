@@ -1,5 +1,5 @@
-github.com/OpenRouterTeam/go-sdk v0.9.107 h1:n0rj2uOdeIFnvd85o2Qc+AeLadJCO2SH86dO4HwQyr8=
-github.com/OpenRouterTeam/go-sdk v0.9.107/go.mod h1:4a0ze9dCIvO81DQGO5ZmCZsHLCmglMwwp8pZfKkEicE=
+github.com/OpenRouterTeam/go-sdk v0.9.116 h1:svJi4iZX+t1jriXOjErMAFuEZ9Zz37DKrrgDPH9g5qg=
+github.com/OpenRouterTeam/go-sdk v0.9.116/go.mod h1:4a0ze9dCIvO81DQGO5ZmCZsHLCmglMwwp8pZfKkEicE=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/spyzhov/ajson v0.9.6 h1:iJRDaLa+GjhCDAt1yFtU/LKMtLtsNVKkxqlpvrHHlpQ=
