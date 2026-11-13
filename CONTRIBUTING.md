@@ -9,11 +9,18 @@
   go install honnef.co/go/tools/cmd/staticcheck@2026.1
   ```
 
+- Optional: govulncheck, to run `make vuln` locally:
+
+  ```bash
+  go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+  ```
+
 ## Before you push
 
 ```bash
 make check   # go mod tidy, gofmt, go vet, staticcheck, go build, go test -race: the same as CI
 make cover   # per-function coverage report
+make vuln    # known-vulnerability scan, like the govulncheck workflow
 ```
 
 The CI `check` job must pass before a pull request can merge.
