@@ -1,6 +1,6 @@
 # Local versions of the checks that CI runs (.github/workflows/ci.yml).
 
-.PHONY: check mod fmt vet staticcheck build test cover
+.PHONY: check mod fmt vet staticcheck build test cover vuln
 
 # Run everything CI's `check` job runs.
 check: mod fmt vet staticcheck build test
@@ -38,3 +38,9 @@ test:
 cover:
 	go test -race -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out
+
+# Scan for known vulnerabilities, like the govulncheck workflow. Not part of
+# `check`: it needs network access and the result changes as new advisories land.
+# Needs govulncheck: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+vuln:
+	govulncheck ./...
